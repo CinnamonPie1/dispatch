@@ -1,0 +1,40 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+}
+
+@layer base {
+  body {
+    @apply bg-[#0F1115] text-[#E2E8F0] font-sans;
+  }
+}
+
+.card {
+  @apply bg-[#1A1F26] border border-white/5 rounded-xl overflow-hidden;
+}
+
+.btn-primary {
+  @apply bg-blue-600 text-white px-4 py-2 rounded-lg font-bold hover:bg-blue-500 shadow-lg shadow-blue-900/20 transition-all disabled:opacity-50 disabled:cursor-not-allowed;
+}
+
+.btn-secondary {
+  @apply bg-white/5 border border-white/10 text-slate-300 px-4 py-2 rounded-lg font-medium hover:bg-white/10 transition-colors disabled:opacity-50;
+}
+
+.input {
+  @apply bg-[#151921] border border-white/10 text-white rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500/50 transition-all;
+}
+
+.badge-emerald {
+  @apply bg-emerald-500/20 text-emerald-400 px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider;
+}
+
+.badge-orange {
+  @apply bg-orange-500/10 text-orange-400 px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider;
+}
+
+.badge-red {
+  @apply bg-red-500/10 text-red-500 px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider;
+}

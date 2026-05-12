@@ -1,0 +1,6 @@
+{
+  "name": "Shift Collaborator",
+  "description": "Randomly assigns people for collaboration based on 24h/8h shift schedules and collaboration history.",
+  "requestFramePermissions": [],
+  "majorCapabilities": []
+}

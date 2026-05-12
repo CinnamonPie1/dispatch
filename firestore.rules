@@ -1,0 +1,67 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isAdmin() {
+      return isSignedIn() && exists(/databases/$(database)/documents/admins/$(request.auth.uid));
+    }
+
+    match /people/{personId} {
+      allow read: if isSignedIn();
+      allow create: if isAdmin() && isValidPerson(incoming());
+      allow update: if isSignedIn() && isValidPerson(incoming()) && (
+        incoming().diff(existing()).affectedKeys().hasOnly(['collaborationCount']) ||
+        (isAdmin() && incoming().diff(existing()).affectedKeys().hasOnly(['name', 'team', 'collaborationCount', 'isEmergencyDept']))
+      );
+      allow delete: if isAdmin();
+    }
+
+    function isValidPerson(data) {
+      return data.name is string && data.name.size() > 0 && data.name.size() <= 100 &&
+             data.team in ['1', '2', '3', '4'] &&
+             data.collaborationCount is int && data.collaborationCount >= 0 &&
+             data.isEmergencyDept is bool;
+    }
+
+    match /assignments/{assignmentId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && isValidAssignment(incoming());
+      allow update: if isSignedIn() && isValidAssignment(incoming()) && (
+        incoming().diff(existing()).affectedKeys().hasOnly(['confirmedCollaborationIds', 'status']) ||
+        (isAdmin() && incoming().diff(existing()).affectedKeys().hasOnly(['assignedPeopleIds', 'confirmedCollaborationIds', 'status']))
+      );
+      allow delete: if isAdmin();
+    }
+
+    match /admins/{adminId} {
+      allow read: if isSignedIn();
+      allow write: if false; // Managed via console for security
+    }
+
+    function isValidAssignment(data) {
+      return data.date is string &&
+             data.assignedPeopleIds is list &&
+             data.confirmedCollaborationIds is list &&
+             data.status in ['draft', 'confirmed'];
+    }
+  }
+}

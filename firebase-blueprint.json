@@ -1,0 +1,51 @@
+{
+  "entities": {
+    "person": {
+      "title": "Person",
+      "description": "A person available for shifts",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "team": { "type": "string", "enum": ["1", "2", "3", "4"] },
+        "collaborationCount": { "type": "integer" },
+        "isEmergencyDept": { "type": "boolean" }
+      },
+      "required": ["name", "team", "collaborationCount", "isEmergencyDept"]
+    },
+    "assignment": {
+      "title": "Assignment",
+      "description": "A daily assignment log",
+      "type": "object",
+      "properties": {
+        "date": { "type": "string", "format": "date" },
+        "assignedPeopleIds": { "type": "array", "items": { "type": "string" } },
+        "confirmedCollaborationIds": { "type": "array", "items": { "type": "string" } },
+        "status": { "type": "string", "enum": ["draft", "confirmed"] }
+      },
+      "required": ["date", "assignedPeopleIds", "confirmedCollaborationIds", "status"]
+    },
+    "admin": {
+      "title": "Admin",
+      "description": "An administrative user",
+      "type": "object",
+      "properties": {
+        "email": { "type": "string" }
+      },
+      "required": ["email"]
+    }
+  },
+  "firestore": {
+    "/admins": {
+      "schema": "admin",
+      "description": "Collection of authorized administrators"
+    },
+    "/people": {
+      "schema": "person",
+      "description": "Collection of people"
+    },
+    "/assignments": {
+      "schema": "assignment",
+      "description": "Collection of daily assignments"
+    }
+  }
+}
