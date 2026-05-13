@@ -8,7 +8,8 @@
         "name": { "type": "string" },
         "team": { "type": "string", "enum": ["1", "2", "3", "4"] },
         "collaborationCount": { "type": "integer" },
-        "isEmergencyDept": { "type": "boolean" }
+        "isEmergencyDept": { "type": "boolean" },
+        "limitOverride": { "type": "boolean" }
       },
       "required": ["name", "team", "collaborationCount", "isEmergencyDept"]
     },
@@ -18,9 +19,11 @@
       "type": "object",
       "properties": {
         "date": { "type": "string", "format": "date" },
+        "type": { "type": "string", "enum": ["morning", "afternoon"] },
         "assignedPeopleIds": { "type": "array", "items": { "type": "string" } },
         "confirmedCollaborationIds": { "type": "array", "items": { "type": "string" } },
-        "status": { "type": "string", "enum": ["draft", "confirmed"] }
+        "status": { "type": "string", "enum": ["draft", "confirmed"] },
+        "createdAt": { "type": "string" }
       },
       "required": ["date", "assignedPeopleIds", "confirmedCollaborationIds", "status"]
     },

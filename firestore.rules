@@ -22,15 +22,18 @@ service cloud.firestore {
     }
 
     function isAdmin() {
-      return isSignedIn() && exists(/databases/$(database)/documents/admins/$(request.auth.uid));
+      return isSignedIn() && (
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid)) || 
+        request.auth.token.email == "davidcordero1012@gmail.com"
+      );
     }
 
     match /people/{personId} {
-      allow read: if isSignedIn();
+      allow read: if true;
       allow create: if isAdmin() && isValidPerson(incoming());
       allow update: if isSignedIn() && isValidPerson(incoming()) && (
         incoming().diff(existing()).affectedKeys().hasOnly(['collaborationCount']) ||
-        (isAdmin() && incoming().diff(existing()).affectedKeys().hasOnly(['name', 'team', 'collaborationCount', 'isEmergencyDept']))
+        (isAdmin() && incoming().diff(existing()).affectedKeys().hasOnly(['name', 'team', 'collaborationCount', 'isEmergencyDept', 'limitOverride']))
       );
       allow delete: if isAdmin();
     }
@@ -39,11 +42,12 @@ service cloud.firestore {
       return data.name is string && data.name.size() > 0 && data.name.size() <= 100 &&
              data.team in ['1', '2', '3', '4'] &&
              data.collaborationCount is int && data.collaborationCount >= 0 &&
-             data.isEmergencyDept is bool;
+             data.isEmergencyDept is bool &&
+             (data.keys().size() <= 6);
     }
 
     match /assignments/{assignmentId} {
-      allow read: if isSignedIn();
+      allow read: if true;
       allow create: if isSignedIn() && isValidAssignment(incoming());
       allow update: if isSignedIn() && isValidAssignment(incoming()) && (
         incoming().diff(existing()).affectedKeys().hasOnly(['confirmedCollaborationIds', 'status']) ||
@@ -54,14 +58,15 @@ service cloud.firestore {
 
     match /admins/{adminId} {
       allow read: if isSignedIn();
-      allow write: if false; // Managed via console for security
+      allow write: if isAdmin() || (isSignedIn() && request.auth.token.email == "davidcordero1012@gmail.com");
     }
 
     function isValidAssignment(data) {
       return data.date is string &&
              data.assignedPeopleIds is list &&
              data.confirmedCollaborationIds is list &&
-             data.status in ['draft', 'confirmed'];
+             data.status in ['draft', 'confirmed'] &&
+             (!data.keys().hasAll(['type']) || data.type in ['morning', 'afternoon']);
     }
   }
 }

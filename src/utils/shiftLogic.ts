@@ -1,8 +1,8 @@
 import { addDays, differenceInDays, startOfDay } from 'date-fns';
 import { ShiftType, Team } from '../types';
 
-// Anchor date: May 12, 2024 (Sunday) - Let's assume Team A starts a 24h shift this day.
-const ANCHOR_DATE = startOfDay(new Date(2024, 4, 12)); 
+// Anchor date: May 12, 2026 (Tuesday) - Guardia 1 starts a 24h shift this day.
+const ANCHOR_DATE = startOfDay(new Date(2026, 4, 12)); 
 
 const CYCLE: ShiftType[] = ['24h', 'Free', '8h', '8h'];
 

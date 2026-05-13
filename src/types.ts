@@ -7,12 +7,17 @@ export interface Person {
   team: Team;
   collaborationCount: number;
   isEmergencyDept: boolean;
+  limitOverride?: boolean;
 }
+
+export type RaffleType = 'morning' | 'afternoon';
 
 export interface Assignment {
   id: string;
   date: string; // ISO format
+  type?: RaffleType;
   assignedPeopleIds: string[];
   confirmedCollaborationIds: string[];
   status: 'draft' | 'confirmed';
+  createdAt?: string; // ISO format for generation timestamp
 }

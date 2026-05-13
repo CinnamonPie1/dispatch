@@ -1,6 +1,7 @@
 import { 
   collection, 
   addDoc, 
+  setDoc,
   updateDoc, 
   deleteDoc, 
   doc, 
@@ -27,6 +28,24 @@ export async function checkIsAdmin(uid: string): Promise<boolean> {
   }
 }
 
+export async function addAdmin(uid: string, email: string) {
+  return setDoc(doc(db, 'admins', uid), { email });
+}
+
+export async function addPeopleBulk(names: string[], team: Person['team'], isEmergencyDept: boolean) {
+  const batch = writeBatch(db);
+  names.forEach(name => {
+    const newPersonRef = doc(peopleCollection);
+    batch.set(newPersonRef, {
+      name,
+      team,
+      collaborationCount: 0,
+      isEmergencyDept
+    });
+  });
+  return batch.commit();
+}
+
 export async function addPerson(name: string, team: Person['team'], isEmergencyDept: boolean) {
   return addDoc(peopleCollection, {
     name,
@@ -40,8 +59,27 @@ export async function updatePerson(id: string, updates: Partial<Omit<Person, 'id
   return updateDoc(doc(db, 'people', id), updates);
 }
 
+export async function toggleEmergencyDept(id: string, currentStatus: boolean) {
+  return updateDoc(doc(db, 'people', id), { isEmergencyDept: !currentStatus });
+}
+
+export async function updateCollabCount(id: string, count: number) {
+  return updateDoc(doc(db, 'people', id), { collaborationCount: count });
+}
+
+export async function toggleLimitOverride(id: string, currentStatus: boolean) {
+  return updateDoc(doc(db, 'people', id), { limitOverride: !currentStatus });
+}
+
 export async function deletePerson(id: string) {
-  return deleteDoc(doc(db, 'people', id));
+  try {
+    const personRef = doc(db, 'people', id);
+    await deleteDoc(personRef);
+    return true;
+  } catch (error: any) {
+    console.error("Firestore Delete Error:", error.message);
+    throw error;
+  }
 }
 
 export async function getPeople(): Promise<Person[]> {
@@ -78,4 +116,8 @@ export async function getAssignments(): Promise<Assignment[]> {
   const q = query(assignmentsCollection);
   const snapshot = await getDocs(q);
   return snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Assignment));
+}
+
+export async function deleteAssignment(id: string) {
+  return deleteDoc(doc(db, 'assignments', id));
 }
