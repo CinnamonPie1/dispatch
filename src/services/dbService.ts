@@ -122,23 +122,24 @@ export async function deleteAssignment(id: string) {
   return deleteDoc(doc(db, 'assignments', id));
 }
 
-export async function getSystemSettings(): Promise<{ maxCollaborationThreshold: number }> {
+export async function getSystemSettings(): Promise<{ maxCollaborationThreshold: number; maxDailyCollaborators: number }> {
   try {
     const docRef = doc(db, 'settings', 'system');
     const docSnap = await getDoc(docRef);
     if (docSnap.exists()) {
       const data = docSnap.data();
-      if (typeof data.maxCollaborationThreshold === 'number') {
-        return { maxCollaborationThreshold: data.maxCollaborationThreshold };
-      }
+      return {
+        maxCollaborationThreshold: typeof data.maxCollaborationThreshold === 'number' ? data.maxCollaborationThreshold : 6,
+        maxDailyCollaborators: typeof data.maxDailyCollaborators === 'number' ? data.maxDailyCollaborators : 7
+      };
     }
   } catch (error) {
     console.error("Failed to fetch system settings:", error);
   }
-  return { maxCollaborationThreshold: 6 };
+  return { maxCollaborationThreshold: 6, maxDailyCollaborators: 7 };
 }
 
-export async function updateSystemSettings(maxCollaborationThreshold: number) {
+export async function updateSystemSettings(maxCollaborationThreshold: number, maxDailyCollaborators: number) {
   const docRef = doc(db, 'settings', 'system');
-  return setDoc(docRef, { maxCollaborationThreshold });
+  return setDoc(docRef, { maxCollaborationThreshold, maxDailyCollaborators });
 }

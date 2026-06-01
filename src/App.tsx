@@ -23,6 +23,7 @@ export default function App() {
   const [people, setPeople] = useState<Person[]>([]);
   const [assignments, setAssignments] = useState<Assignment[]>([]);
   const [maxCollaborationThreshold, setMaxCollaborationThreshold] = useState<number>(6);
+  const [maxDailyCollaborators, setMaxDailyCollaborators] = useState<number>(7);
 
   // Language state, default to Spanish
   const [lang, setLang] = useState<Language>(() => {
@@ -74,8 +75,13 @@ export default function App() {
       ]);
       setPeople(peopleData);
       setAssignments(assignmentsData.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()));
-      if (settingsData && typeof settingsData.maxCollaborationThreshold === 'number') {
-        setMaxCollaborationThreshold(settingsData.maxCollaborationThreshold);
+      if (settingsData) {
+        if (typeof settingsData.maxCollaborationThreshold === 'number') {
+          setMaxCollaborationThreshold(settingsData.maxCollaborationThreshold);
+        }
+        if (typeof settingsData.maxDailyCollaborators === 'number') {
+          setMaxDailyCollaborators(settingsData.maxDailyCollaborators);
+        }
       }
     } catch (error) {
       console.error("Error loading data", error);
@@ -276,7 +282,7 @@ export default function App() {
                 </div>
               </div>
             </div>
-            <Dashboard people={people} assignments={assignments} onUpdate={loadData} isAdmin={false} lang={lang} t={t} maxCollaborationThreshold={maxCollaborationThreshold} />
+            <Dashboard people={people} assignments={assignments} onUpdate={loadData} isAdmin={false} lang={lang} t={t} maxCollaborationThreshold={maxCollaborationThreshold} maxDailyCollaborators={maxDailyCollaborators} />
           </div>
         )}
       </main>
@@ -367,10 +373,10 @@ export default function App() {
       {/* Main Content */}
       <main className="flex-1 overflow-auto p-6 md:p-10 bg-[#0F1115]">
         <div className="max-w-6xl mx-auto">
-          {view === 'dashboard' && <Dashboard people={people} assignments={assignments} onUpdate={loadData} isAdmin={isAdmin} lang={lang} t={t} maxCollaborationThreshold={maxCollaborationThreshold} />}
+          {view === 'dashboard' && <Dashboard people={people} assignments={assignments} onUpdate={loadData} isAdmin={isAdmin} lang={lang} t={t} maxCollaborationThreshold={maxCollaborationThreshold} maxDailyCollaborators={maxDailyCollaborators} />}
           {view === 'people' && <PeopleManager people={people} onUpdate={loadData} isAdmin={isAdmin} lang={lang} t={t} maxCollaborationThreshold={maxCollaborationThreshold} />}
           {view === 'history' && <HistoryView assignments={assignments} people={people} onUpdate={loadData} isAdmin={isAdmin} lang={lang} t={t} />}
-          {view === 'admin' && isAdmin && <AdminManager onUpdate={loadData} lang={lang} t={t} maxCollaborationThreshold={maxCollaborationThreshold} />}
+          {view === 'admin' && isAdmin && <AdminManager onUpdate={loadData} lang={lang} t={t} maxCollaborationThreshold={maxCollaborationThreshold} maxDailyCollaborators={maxDailyCollaborators} />}
         </div>
       </main>
     </div>
@@ -393,7 +399,7 @@ function NavItem({ icon, label, active, onClick }: { icon: React.ReactNode, labe
   );
 }
 
-function Dashboard({ people, assignments, onUpdate, isAdmin, lang, t, maxCollaborationThreshold }: { people: Person[], assignments: Assignment[], onUpdate: () => void, isAdmin: boolean, lang: Language, t: any, maxCollaborationThreshold: number }) {
+function Dashboard({ people, assignments, onUpdate, isAdmin, lang, t, maxCollaborationThreshold, maxDailyCollaborators }: { people: Person[], assignments: Assignment[], onUpdate: () => void, isAdmin: boolean, lang: Language, t: any, maxCollaborationThreshold: number, maxDailyCollaborators: number }) {
   const today = startOfToday();
   const [currentDate, setCurrentDate] = useState(today);
   const [isSaving, setIsSaving] = useState(false);
@@ -458,12 +464,12 @@ function Dashboard({ people, assignments, onUpdate, isAdmin, lang, t, maxCollabo
     setIsSaving(true);
     try {
       const shuffled = shuffle(availablePeople);
-      const topSeven = shuffled.slice(0, 7);
+      const selectedCollaborators = shuffled.slice(0, maxDailyCollaborators);
       
       await saveAssignment({
         date: currentDate.toISOString(),
         type: raffleType,
-        assignedPeopleIds: topSeven.map(p => p.id),
+        assignedPeopleIds: selectedCollaborators.map(p => p.id),
         confirmedCollaborationIds: [],
         status: 'draft',
         createdAt: new Date().toISOString()
@@ -1006,17 +1012,22 @@ function PeopleManager({ people, onUpdate, isAdmin, lang, t, maxCollaborationThr
   );
 }
 
-function AdminManager({ onUpdate, lang, t, maxCollaborationThreshold }: { onUpdate: () => void, lang: Language, t: any, maxCollaborationThreshold: number }) {
+function AdminManager({ onUpdate, lang, t, maxCollaborationThreshold, maxDailyCollaborators }: { onUpdate: () => void, lang: Language, t: any, maxCollaborationThreshold: number, maxDailyCollaborators: number }) {
   const [newAdminUid, setNewAdminUid] = useState('');
   const [newAdminEmail, setNewAdminEmail] = useState('');
   const [isAdding, setIsAdding] = useState(false);
 
   const [tempLimit, setTempLimit] = useState(maxCollaborationThreshold);
+  const [tempDailyLimit, setTempDailyLimit] = useState(maxDailyCollaborators);
   const [isSavingSettings, setIsSavingSettings] = useState(false);
 
   useEffect(() => {
     setTempLimit(maxCollaborationThreshold);
   }, [maxCollaborationThreshold]);
+
+  useEffect(() => {
+    setTempDailyLimit(maxDailyCollaborators);
+  }, [maxDailyCollaborators]);
 
   const handleAddAdmin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -1040,7 +1051,7 @@ function AdminManager({ onUpdate, lang, t, maxCollaborationThreshold }: { onUpda
     e.preventDefault();
     setIsSavingSettings(true);
     try {
-      await updateSystemSettings(tempLimit);
+      await updateSystemSettings(tempLimit, tempDailyLimit);
       alert(t.settingSaveSuccess);
       onUpdate();
     } catch (err: any) {
@@ -1106,6 +1117,18 @@ function AdminManager({ onUpdate, lang, t, maxCollaborationThreshold }: { onUpda
                   className="input w-full text-xs font-mono font-bold text-white bg-black/40 border border-white/10 rounded-xl px-4 py-3 focus:outline-none focus:border-blue-500 transition-colors"
                 />
                 <p className="text-[9px] text-slate-500 leading-relaxed">{t.settingMaxcollabsDesc}</p>
+              </div>
+              <div className="space-y-2">
+                <label className="text-[10px] font-bold uppercase tracking-widest text-[#94A3B8]">{t.settingMaxDailyLabel}</label>
+                <input 
+                  type="number"
+                  min="1"
+                  max="100"
+                  value={tempDailyLimit}
+                  onChange={e => setTempDailyLimit(parseInt(e.target.value) || 1)}
+                  className="input w-full text-xs font-mono font-bold text-white bg-black/40 border border-white/10 rounded-xl px-4 py-3 focus:outline-none focus:border-blue-500 transition-colors"
+                />
+                <p className="text-[9px] text-slate-500 leading-relaxed">{t.settingMaxDailyDesc}</p>
               </div>
               <button disabled={isSavingSettings} className="w-full btn-primary py-4 mt-4 flex items-center justify-center gap-3 uppercase tracking-widest text-xs font-black cursor-pointer">
                 <CheckCircle2 className="w-5 h-5" />

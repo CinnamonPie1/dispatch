@@ -50,6 +50,8 @@ export interface TranslationKeys {
   limitMarker: string;
   settingMaxcollabsLabel: string;
   settingMaxcollabsDesc: string;
+  settingMaxDailyLabel: string;
+  settingMaxDailyDesc: string;
   settingSaveSuccess: string;
   settingSaveBtn: string;
   settingSavingBtn: string;
@@ -165,6 +167,8 @@ export const translations: Record<Language, TranslationKeys> = {
     limitMarker: "Limit: {limit}",
     settingMaxcollabsLabel: "Maximum Collaboration Limit",
     settingMaxcollabsDesc: "The maximum number of times any personnel is allowed to participate in collaborations before being blocked.",
+    settingMaxDailyLabel: "Maximum Daily Collaborators",
+    settingMaxDailyDesc: "The maximum number of personnel selected during the daily raffle.",
     settingSaveSuccess: "System settings updated successfully.",
     settingSaveBtn: "Save Settings",
     settingSavingBtn: "Saving Settings...",
@@ -278,6 +282,8 @@ export const translations: Record<Language, TranslationKeys> = {
     limitMarker: "Límite: {limit}",
     settingMaxcollabsLabel: "Límite de Colaboración Máxima",
     settingMaxcollabsDesc: "El número máximo de veces que se permite participar en colaboraciones a cualquier miembro del personal antes de ser bloqueado.",
+    settingMaxDailyLabel: "Colaboradores Diarios Máximos",
+    settingMaxDailyDesc: "El número máximo de miembros de personal seleccionados durante el sorteo diario.",
     settingSaveSuccess: "Ajustes del sistema actualizados con éxito.",
     settingSaveBtn: "Guardar Ajustes",
     settingSavingBtn: "Guardando Ajustes...",
