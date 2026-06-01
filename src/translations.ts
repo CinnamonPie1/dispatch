@@ -48,6 +48,11 @@ export interface TranslationKeys {
   emergencyDept: string;
   overridden: string;
   limitMarker: string;
+  settingMaxcollabsLabel: string;
+  settingMaxcollabsDesc: string;
+  settingSaveSuccess: string;
+  settingSaveBtn: string;
+  settingSavingBtn: string;
   setEd: string;
   edActive: string;
   overrideLimit: string;
@@ -157,7 +162,12 @@ export const translations: Record<Language, TranslationKeys> = {
     maxThreshold: "Max Threshold",
     emergencyDept: "Emergency Dept",
     overridden: "OVERRIDDEN",
-    limitMarker: "Limit: 6",
+    limitMarker: "Limit: {limit}",
+    settingMaxcollabsLabel: "Maximum Collaboration Limit",
+    settingMaxcollabsDesc: "The maximum number of times any personnel is allowed to participate in collaborations before being blocked.",
+    settingSaveSuccess: "System settings updated successfully.",
+    settingSaveBtn: "Save Settings",
+    settingSavingBtn: "Saving Settings...",
     setEd: "Set ED",
     edActive: "ED Active",
     overrideLimit: "Override Limit",
@@ -265,7 +275,12 @@ export const translations: Record<Language, TranslationKeys> = {
     maxThreshold: "Límite Máximo",
     emergencyDept: "Dpto. Urgencias",
     overridden: "OMITIDAS",
-    limitMarker: "Límite: 6",
+    limitMarker: "Límite: {limit}",
+    settingMaxcollabsLabel: "Límite de Colaboración Máxima",
+    settingMaxcollabsDesc: "El número máximo de veces que se permite participar en colaboraciones a cualquier miembro del personal antes de ser bloqueado.",
+    settingSaveSuccess: "Ajustes del sistema actualizados con éxito.",
+    settingSaveBtn: "Guardar Ajustes",
+    settingSavingBtn: "Guardando Ajustes...",
     setEd: "Asignar Urgencias",
     edActive: "Urgencias Activo",
     overrideLimit: "Omitir Límite",

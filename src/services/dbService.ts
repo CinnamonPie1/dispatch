@@ -121,3 +121,24 @@ export async function getAssignments(): Promise<Assignment[]> {
 export async function deleteAssignment(id: string) {
   return deleteDoc(doc(db, 'assignments', id));
 }
+
+export async function getSystemSettings(): Promise<{ maxCollaborationThreshold: number }> {
+  try {
+    const docRef = doc(db, 'settings', 'system');
+    const docSnap = await getDoc(docRef);
+    if (docSnap.exists()) {
+      const data = docSnap.data();
+      if (typeof data.maxCollaborationThreshold === 'number') {
+        return { maxCollaborationThreshold: data.maxCollaborationThreshold };
+      }
+    }
+  } catch (error) {
+    console.error("Failed to fetch system settings:", error);
+  }
+  return { maxCollaborationThreshold: 6 };
+}
+
+export async function updateSystemSettings(maxCollaborationThreshold: number) {
+  const docRef = doc(db, 'settings', 'system');
+  return setDoc(docRef, { maxCollaborationThreshold });
+}

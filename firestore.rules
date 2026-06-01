@@ -61,6 +61,11 @@ service cloud.firestore {
       allow write: if isAdmin() || (isSignedIn() && request.auth.token.email == "davidcordero1012@gmail.com");
     }
 
+    match /settings/{settingId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
     function isValidAssignment(data) {
       return data.date is string &&
              data.assignedPeopleIds is list &&

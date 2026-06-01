@@ -10,7 +10,7 @@ import {
 import { auth } from './firebase';
 import { LogIn, LogOut, Users, Calendar as CalendarIcon, History, Plus, Trash2, CheckCircle2, RotateCcw, AlertTriangle, Globe } from 'lucide-react';
 import { Team, Person, Assignment } from './types';
-import { getPeople, addPeopleBulk, deletePerson, saveAssignment, getAssignments, confirmCollaboration, checkIsAdmin, addAdmin, toggleEmergencyDept, updateCollabCount, deleteAssignment, toggleLimitOverride } from './services/dbService';
+import { getPeople, addPeopleBulk, deletePerson, saveAssignment, getAssignments, confirmCollaboration, checkIsAdmin, addAdmin, toggleEmergencyDept, updateCollabCount, deleteAssignment, toggleLimitOverride, getSystemSettings, updateSystemSettings } from './services/dbService';
 import { getShiftForTeam, shuffle } from './utils/shiftLogic';
 import { format, startOfToday } from 'date-fns';
 import { translations, Language } from './translations';
@@ -22,6 +22,7 @@ export default function App() {
   const [view, setView] = useState<'dashboard' | 'people' | 'history' | 'admin'>('dashboard');
   const [people, setPeople] = useState<Person[]>([]);
   const [assignments, setAssignments] = useState<Assignment[]>([]);
+  const [maxCollaborationThreshold, setMaxCollaborationThreshold] = useState<number>(6);
 
   // Language state, default to Spanish
   const [lang, setLang] = useState<Language>(() => {
@@ -66,12 +67,16 @@ export default function App() {
 
   async function loadData() {
     try {
-      const [peopleData, assignmentsData] = await Promise.all([
+      const [peopleData, assignmentsData, settingsData] = await Promise.all([
         getPeople(),
-        getAssignments()
+        getAssignments(),
+        getSystemSettings()
       ]);
       setPeople(peopleData);
       setAssignments(assignmentsData.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()));
+      if (settingsData && typeof settingsData.maxCollaborationThreshold === 'number') {
+        setMaxCollaborationThreshold(settingsData.maxCollaborationThreshold);
+      }
     } catch (error) {
       console.error("Error loading data", error);
     }
@@ -271,7 +276,7 @@ export default function App() {
                 </div>
               </div>
             </div>
-            <Dashboard people={people} assignments={assignments} onUpdate={loadData} isAdmin={false} lang={lang} t={t} />
+            <Dashboard people={people} assignments={assignments} onUpdate={loadData} isAdmin={false} lang={lang} t={t} maxCollaborationThreshold={maxCollaborationThreshold} />
           </div>
         )}
       </main>
@@ -362,10 +367,10 @@ export default function App() {
       {/* Main Content */}
       <main className="flex-1 overflow-auto p-6 md:p-10 bg-[#0F1115]">
         <div className="max-w-6xl mx-auto">
-          {view === 'dashboard' && <Dashboard people={people} assignments={assignments} onUpdate={loadData} isAdmin={isAdmin} lang={lang} t={t} />}
-          {view === 'people' && <PeopleManager people={people} onUpdate={loadData} isAdmin={isAdmin} lang={lang} t={t} />}
+          {view === 'dashboard' && <Dashboard people={people} assignments={assignments} onUpdate={loadData} isAdmin={isAdmin} lang={lang} t={t} maxCollaborationThreshold={maxCollaborationThreshold} />}
+          {view === 'people' && <PeopleManager people={people} onUpdate={loadData} isAdmin={isAdmin} lang={lang} t={t} maxCollaborationThreshold={maxCollaborationThreshold} />}
           {view === 'history' && <HistoryView assignments={assignments} people={people} onUpdate={loadData} isAdmin={isAdmin} lang={lang} t={t} />}
-          {view === 'admin' && isAdmin && <AdminManager onUpdate={loadData} lang={lang} t={t} />}
+          {view === 'admin' && isAdmin && <AdminManager onUpdate={loadData} lang={lang} t={t} maxCollaborationThreshold={maxCollaborationThreshold} />}
         </div>
       </main>
     </div>
@@ -388,7 +393,7 @@ function NavItem({ icon, label, active, onClick }: { icon: React.ReactNode, labe
   );
 }
 
-function Dashboard({ people, assignments, onUpdate, isAdmin, lang, t }: { people: Person[], assignments: Assignment[], onUpdate: () => void, isAdmin: boolean, lang: Language, t: any }) {
+function Dashboard({ people, assignments, onUpdate, isAdmin, lang, t, maxCollaborationThreshold }: { people: Person[], assignments: Assignment[], onUpdate: () => void, isAdmin: boolean, lang: Language, t: any, maxCollaborationThreshold: number }) {
   const today = startOfToday();
   const [currentDate, setCurrentDate] = useState(today);
   const [isSaving, setIsSaving] = useState(false);
@@ -414,8 +419,8 @@ function Dashboard({ people, assignments, onUpdate, isAdmin, lang, t }: { people
     const shiftA = getShiftForTeam(currentDate, a.team);
     const shiftB = getShiftForTeam(currentDate, b.team);
     
-    const isEligibleA = (shiftA === '8h' || (raffleType === 'afternoon' && shiftA === '24h')) && (a.collaborationCount < 6 || a.limitOverride) && !a.isEmergencyDept;
-    const isEligibleB = (shiftB === '8h' || (raffleType === 'afternoon' && shiftB === '24h')) && (b.collaborationCount < 6 || b.limitOverride) && !b.isEmergencyDept;
+    const isEligibleA = (shiftA === '8h' || (raffleType === 'afternoon' && shiftA === '24h')) && (a.collaborationCount < maxCollaborationThreshold || a.limitOverride) && !a.isEmergencyDept;
+    const isEligibleB = (shiftB === '8h' || (raffleType === 'afternoon' && shiftB === '24h')) && (b.collaborationCount < maxCollaborationThreshold || b.limitOverride) && !b.isEmergencyDept;
 
     let compare = 0;
     if (sortField === 'name') compare = a.name.localeCompare(b.name);
@@ -423,7 +428,7 @@ function Dashboard({ people, assignments, onUpdate, isAdmin, lang, t }: { people
     else if (sortField === 'collabs') compare = a.collaborationCount - b.collaborationCount;
     else if (sortField === 'status') {
       const getStatusRank = (p: Person, shift: string, eligible: boolean) => {
-        if (p.collaborationCount >= 6) return 3;
+        if (p.collaborationCount >= maxCollaborationThreshold) return 3;
         if (eligible) return 0;
         if (shift === '24h') return 1;
         return 2;
@@ -444,7 +449,7 @@ function Dashboard({ people, assignments, onUpdate, isAdmin, lang, t }: { people
   const availablePeople = people.filter(p => {
     const shift = getShiftForTeam(currentDate, p.team);
     const shiftCheck = raffleType === 'morning' ? shift === '8h' : (shift === '24h' || shift === '8h');
-    const countCheck = p.collaborationCount < 6 || p.limitOverride;
+    const countCheck = p.collaborationCount < maxCollaborationThreshold || p.limitOverride;
     return shiftCheck && countCheck && !p.isEmergencyDept;
   });
 
@@ -564,7 +569,7 @@ function Dashboard({ people, assignments, onUpdate, isAdmin, lang, t }: { people
                   {sortedPeople.map(p => {
                     const shift = getShiftForTeam(currentDate, p.team);
                     const shiftCheck = raffleType === 'morning' ? shift === '8h' : (shift === '24h' || shift === '8h');
-                    const countCheck = p.collaborationCount < 6 || p.limitOverride;
+                    const countCheck = p.collaborationCount < maxCollaborationThreshold || p.limitOverride;
                     const isEligible = shiftCheck && countCheck && !p.isEmergencyDept;
                     return (
                       <tr key={p.id} className={`hover:bg-white/[0.02] transition-colors ${isEligible ? 'bg-emerald-500/[0.03]' : ''}`}>
@@ -577,8 +582,8 @@ function Dashboard({ people, assignments, onUpdate, isAdmin, lang, t }: { people
                         </td>
                         <td className="px-6 py-4 text-slate-400 font-mono text-xs">G{p.team}</td>
                         <td className="px-6 py-4 text-center font-mono text-sm text-slate-300 font-medium">
-                          <span className={p.collaborationCount >= 6 && !p.limitOverride ? 'text-red-400' : 'text-slate-300'}>
-                            {p.collaborationCount}/6
+                          <span className={p.collaborationCount >= maxCollaborationThreshold && !p.limitOverride ? 'text-red-400' : 'text-slate-300'}>
+                            {p.collaborationCount}/{maxCollaborationThreshold}
                           </span>
                         </td>
                         <td className="px-6 py-4 text-right">
@@ -586,7 +591,7 @@ function Dashboard({ people, assignments, onUpdate, isAdmin, lang, t }: { people
                             <span className="badge-emerald">{raffleType === 'morning' ? t.eligible8h : t.eligibleShift}</span>
                           ) : p.isEmergencyDept ? (
                             <span className="badge-red">{t.edBlock}</span>
-                          ) : p.collaborationCount >= 6 && !p.limitOverride ? (
+                          ) : p.collaborationCount >= maxCollaborationThreshold && !p.limitOverride ? (
                             <span className="badge-red">{t.maxCollab}</span>
                           ) : shift === '24h' && raffleType === 'morning' ? (
                             <span className="badge-orange">{t.conflict24h}</span>
@@ -649,7 +654,7 @@ function Dashboard({ people, assignments, onUpdate, isAdmin, lang, t }: { people
                   <div className="flex-1">
                     <p className="text-sm font-bold text-white">{p.name}</p>
                     <p className={`text-[10px] font-bold uppercase tracking-widest ${i === 0 ? 'text-blue-300/60' : 'text-slate-500'}`}>
-                      {t.collabs}: {p.collaborationCount}/6 • {t.guardia} {p.team}
+                      {t.collabs}: {p.collaborationCount}/{maxCollaborationThreshold} • {t.guardia} {p.team}
                     </p>
                   </div>
                   {i === 0 && <div className="h-3 w-3 rounded-full bg-blue-400 shadow-[0_0_12px_rgba(96,165,250,0.8)]"></div>}
@@ -690,7 +695,7 @@ function Dashboard({ people, assignments, onUpdate, isAdmin, lang, t }: { people
   );
 }
 
-function PeopleManager({ people, onUpdate, isAdmin, lang, t }: { people: Person[], onUpdate: () => void, isAdmin: boolean, lang: Language, t: any }) {
+function PeopleManager({ people, onUpdate, isAdmin, lang, t, maxCollaborationThreshold }: { people: Person[], onUpdate: () => void, isAdmin: boolean, lang: Language, t: any, maxCollaborationThreshold: number }) {
   const [name, setName] = useState('');
   const [team, setTeam] = useState<Team>('1');
   const [isEmergencyDept, setIsEmergencyDept] = useState(false);
@@ -898,7 +903,7 @@ function PeopleManager({ people, onUpdate, isAdmin, lang, t }: { people: Person[
                           <div>
                              <p className="font-bold text-sm text-white">{p.name}</p>
                              <div className="flex gap-1 mt-1">
-                               {p.collaborationCount >= 6 && <span className="badge-red text-[8px] px-1.5 py-0.5 shadow-[0_0_8px_rgba(239,68,68,0.2)]">{t.maxThreshold}</span>}
+                               {p.collaborationCount >= maxCollaborationThreshold && <span className="badge-red text-[8px] px-1.5 py-0.5 shadow-[0_0_8px_rgba(239,68,68,0.2)]">{t.maxThreshold}</span>}
                                {p.isEmergencyDept && <span className="bg-red-500/10 text-red-500 border border-red-500/20 text-[8px] font-bold px-1.5 py-0.5 rounded uppercase">{t.emergencyDept}</span>}
                              </div>
                           </div>
@@ -913,7 +918,7 @@ function PeopleManager({ people, onUpdate, isAdmin, lang, t }: { people: Person[
                          <td className="px-6 py-4 text-center font-mono text-sm leading-none">
                            <div className="flex flex-col items-center gap-1">
                               <div className="flex items-center gap-2">
-                                <span className={p.collaborationCount >= 6 && !p.limitOverride ? 'text-red-400' : 'text-slate-300'}>{p.collaborationCount}</span>
+                                <span className={p.collaborationCount >= maxCollaborationThreshold && !p.limitOverride ? 'text-red-400' : 'text-slate-300'}>{p.collaborationCount}</span>
                                 {isAdmin && (
                                   <div className="flex gap-1">
                                     <button 
@@ -929,7 +934,7 @@ function PeopleManager({ people, onUpdate, isAdmin, lang, t }: { people: Person[
                                   </div>
                                 )}
                               </div>
-                              <span className="text-[8px] text-slate-600 uppercase font-black">{p.limitOverride ? t.overridden : t.limitMarker}</span>
+                              <span className="text-[8px] text-slate-600 uppercase font-black">{p.limitOverride ? t.overridden : t.limitMarker.replace('{limit}', String(maxCollaborationThreshold))}</span>
                            </div>
                          </td>
                          <td className="px-6 py-4 text-right">
@@ -1001,10 +1006,17 @@ function PeopleManager({ people, onUpdate, isAdmin, lang, t }: { people: Person[
   );
 }
 
-function AdminManager({ onUpdate, lang, t }: { onUpdate: () => void, lang: Language, t: any }) {
+function AdminManager({ onUpdate, lang, t, maxCollaborationThreshold }: { onUpdate: () => void, lang: Language, t: any, maxCollaborationThreshold: number }) {
   const [newAdminUid, setNewAdminUid] = useState('');
   const [newAdminEmail, setNewAdminEmail] = useState('');
   const [isAdding, setIsAdding] = useState(false);
+
+  const [tempLimit, setTempLimit] = useState(maxCollaborationThreshold);
+  const [isSavingSettings, setIsSavingSettings] = useState(false);
+
+  useEffect(() => {
+    setTempLimit(maxCollaborationThreshold);
+  }, [maxCollaborationThreshold]);
 
   const handleAddAdmin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -1024,6 +1036,21 @@ function AdminManager({ onUpdate, lang, t }: { onUpdate: () => void, lang: Langu
     }
   };
 
+  const handleSaveSettings = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsSavingSettings(true);
+    try {
+      await updateSystemSettings(tempLimit);
+      alert(t.settingSaveSuccess);
+      onUpdate();
+    } catch (err: any) {
+      console.error(err);
+      alert(lang === 'es' ? 'Error al guardar los ajustes.' : 'Failed to save settings.');
+    } finally {
+      setIsSavingSettings(false);
+    }
+  };
+
   return (
     <div className="space-y-10">
       <header className="border-b border-white/5 pb-8">
@@ -1032,35 +1059,61 @@ function AdminManager({ onUpdate, lang, t }: { onUpdate: () => void, lang: Langu
       </header>
 
       <div className="grid grid-cols-1 xl:grid-cols-12 gap-10 items-start">
-        <section className="xl:col-span-5 bg-[#151921] p-8 rounded-2xl border border-white/5 shadow-2xl h-fit">
-          <h3 className="font-bold text-lg text-white mb-8 border-b border-white/5 pb-4">{t.authorizeTitle}</h3>
-          <form onSubmit={handleAddAdmin} className="space-y-6">
-            <div className="space-y-2">
-              <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500">{t.userUid}</label>
-              <input 
-                value={newAdminUid}
-                onChange={e => setNewAdminUid(e.target.value)}
-                className="input w-full text-xs font-mono" 
-                placeholder="Paste UID here..." 
-              />
-              <p className="text-[9px] text-slate-600">{t.uidHint}</p>
-            </div>
-            <div className="space-y-2">
-              <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500">{t.officialEmail}</label>
-              <input 
-                type="email"
-                value={newAdminEmail}
-                onChange={e => setNewAdminEmail(e.target.value)}
-                className="input w-full text-xs" 
-                placeholder="email@example.com" 
-              />
-            </div>
-            <button disabled={isAdding} className="w-full btn-primary py-4 mt-4 flex items-center justify-center gap-3 uppercase tracking-widest text-xs font-black cursor-pointer">
-              <CheckCircle2 className="w-5 h-5" />
-              {isAdding ? t.authorizingBtn : t.authorizeBtn}
-            </button>
-          </form>
-        </section>
+        <div className="xl:col-span-5 space-y-6">
+          <section className="bg-[#151921] p-8 rounded-2xl border border-white/5 shadow-2xl h-fit">
+            <h3 className="font-bold text-lg text-white mb-8 border-b border-white/5 pb-4">{t.authorizeTitle}</h3>
+            <form onSubmit={handleAddAdmin} className="space-y-6">
+              <div className="space-y-2">
+                <label className="text-[10px] font-bold uppercase tracking-widest text-[#94A3B8]">{t.userUid}</label>
+                <input 
+                  value={newAdminUid}
+                  onChange={e => setNewAdminUid(e.target.value)}
+                  className="input w-full text-xs font-mono" 
+                  placeholder="Paste UID here..." 
+                />
+                <p className="text-[9px] text-slate-600">{t.uidHint}</p>
+              </div>
+              <div className="space-y-2">
+                <label className="text-[10px] font-bold uppercase tracking-widest text-[#94A3B8]">{t.officialEmail}</label>
+                <input 
+                  type="email"
+                  value={newAdminEmail}
+                  onChange={e => setNewAdminEmail(e.target.value)}
+                  className="input w-full text-xs" 
+                  placeholder="email@example.com" 
+                />
+              </div>
+              <button disabled={isAdding} className="w-full btn-primary py-4 mt-4 flex items-center justify-center gap-3 uppercase tracking-widest text-xs font-black cursor-pointer">
+                <CheckCircle2 className="w-5 h-5" />
+                {isAdding ? t.authorizingBtn : t.authorizeBtn}
+              </button>
+            </form>
+          </section>
+
+          <section className="bg-[#151921] p-8 rounded-2xl border border-white/5 shadow-2xl">
+            <h3 className="font-bold text-lg text-white mb-8 border-b border-white/5 pb-4">
+              {lang === 'es' ? 'Parámetros del Sistema' : 'System Parameters'}
+            </h3>
+            <form onSubmit={handleSaveSettings} className="space-y-6">
+              <div className="space-y-2">
+                <label className="text-[10px] font-bold uppercase tracking-widest text-[#94A3B8]">{t.settingMaxcollabsLabel}</label>
+                <input 
+                  type="number"
+                  min="1"
+                  max="50"
+                  value={tempLimit}
+                  onChange={e => setTempLimit(parseInt(e.target.value) || 1)}
+                  className="input w-full text-xs font-mono font-bold text-white bg-black/40 border border-white/10 rounded-xl px-4 py-3 focus:outline-none focus:border-blue-500 transition-colors"
+                />
+                <p className="text-[9px] text-slate-500 leading-relaxed">{t.settingMaxcollabsDesc}</p>
+              </div>
+              <button disabled={isSavingSettings} className="w-full btn-primary py-4 mt-4 flex items-center justify-center gap-3 uppercase tracking-widest text-xs font-black cursor-pointer">
+                <CheckCircle2 className="w-5 h-5" />
+                {isSavingSettings ? t.settingSavingBtn : t.settingSaveBtn}
+              </button>
+            </form>
+          </section>
+        </div>
 
         <section className="xl:col-span-7 space-y-6">
           <div className="bg-blue-600/5 border border-blue-500/20 p-8 rounded-2xl flex items-start gap-5">

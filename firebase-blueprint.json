@@ -35,6 +35,15 @@
         "email": { "type": "string" }
       },
       "required": ["email"]
+    },
+    "setting": {
+      "title": "System Setting",
+      "description": "Adjustable system variables",
+      "type": "object",
+      "properties": {
+        "maxCollaborationThreshold": { "type": "integer" }
+      },
+      "required": ["maxCollaborationThreshold"]
     }
   },
   "firestore": {
@@ -49,6 +58,10 @@
     "/assignments": {
       "schema": "assignment",
       "description": "Collection of daily assignments"
+    },
+    "/settings": {
+      "schema": "setting",
+      "description": "System settings"
     }
   }
 }
