@@ -419,8 +419,8 @@ function Dashboard({ people, assignments, onUpdate, isAdmin, lang, t, maxCollabo
     const shiftA = getShiftForTeam(currentDate, a.team);
     const shiftB = getShiftForTeam(currentDate, b.team);
     
-    const isEligibleA = (shiftA === '8h' || (raffleType === 'afternoon' && shiftA === '24h')) && (a.collaborationCount < maxCollaborationThreshold || a.limitOverride) && !a.isEmergencyDept;
-    const isEligibleB = (shiftB === '8h' || (raffleType === 'afternoon' && shiftB === '24h')) && (b.collaborationCount < maxCollaborationThreshold || b.limitOverride) && !b.isEmergencyDept;
+    const isEligibleA = (raffleType === 'morning' ? shiftA === '8h' : shiftA === '24h') && (a.collaborationCount < maxCollaborationThreshold || a.limitOverride) && !a.isEmergencyDept;
+    const isEligibleB = (raffleType === 'morning' ? shiftB === '8h' : shiftB === '24h') && (b.collaborationCount < maxCollaborationThreshold || b.limitOverride) && !b.isEmergencyDept;
 
     let compare = 0;
     if (sortField === 'name') compare = a.name.localeCompare(b.name);
@@ -448,7 +448,7 @@ function Dashboard({ people, assignments, onUpdate, isAdmin, lang, t, maxCollabo
 
   const availablePeople = people.filter(p => {
     const shift = getShiftForTeam(currentDate, p.team);
-    const shiftCheck = raffleType === 'morning' ? shift === '8h' : (shift === '24h' || shift === '8h');
+    const shiftCheck = raffleType === 'morning' ? shift === '8h' : shift === '24h';
     const countCheck = p.collaborationCount < maxCollaborationThreshold || p.limitOverride;
     return shiftCheck && countCheck && !p.isEmergencyDept;
   });
@@ -568,7 +568,7 @@ function Dashboard({ people, assignments, onUpdate, isAdmin, lang, t, maxCollabo
                 <tbody className="divide-y divide-white/5">
                   {sortedPeople.map(p => {
                     const shift = getShiftForTeam(currentDate, p.team);
-                    const shiftCheck = raffleType === 'morning' ? shift === '8h' : (shift === '24h' || shift === '8h');
+                    const shiftCheck = raffleType === 'morning' ? shift === '8h' : shift === '24h';
                     const countCheck = p.collaborationCount < maxCollaborationThreshold || p.limitOverride;
                     const isEligible = shiftCheck && countCheck && !p.isEmergencyDept;
                     return (
