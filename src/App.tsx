@@ -1,17 +1,19 @@
 import React, { useState, useEffect } from 'react';
 import { 
   onAuthStateChanged, 
-  signInWithPopup, 
-  GoogleAuthProvider, 
+  signInWithEmailAndPassword, 
+  createUserWithEmailAndPassword, 
+  updateProfile,
   signOut,
   User 
 } from 'firebase/auth';
 import { auth } from './firebase';
-import { LogIn, LogOut, Users, Calendar as CalendarIcon, History, Plus, Trash2, CheckCircle2, RotateCcw, AlertTriangle } from 'lucide-react';
+import { LogIn, LogOut, Users, Calendar as CalendarIcon, History, Plus, Trash2, CheckCircle2, RotateCcw, AlertTriangle, Globe } from 'lucide-react';
 import { Team, Person, Assignment } from './types';
 import { getPeople, addPeopleBulk, deletePerson, saveAssignment, getAssignments, confirmCollaboration, checkIsAdmin, addAdmin, toggleEmergencyDept, updateCollabCount, deleteAssignment, toggleLimitOverride } from './services/dbService';
 import { getShiftForTeam, shuffle } from './utils/shiftLogic';
 import { format, startOfToday } from 'date-fns';
+import { translations, Language } from './translations';
 
 export default function App() {
   const [user, setUser] = useState<User | null>(null);
@@ -21,12 +23,35 @@ export default function App() {
   const [people, setPeople] = useState<Person[]>([]);
   const [assignments, setAssignments] = useState<Assignment[]>([]);
 
+  // Language state, default to Spanish
+  const [lang, setLang] = useState<Language>(() => {
+    const saved = localStorage.getItem('dispatch_lang');
+    return (saved as Language) || 'es';
+  });
+
+  // Centralized email/password auth state
+  const [showLoginForm, setShowLoginForm] = useState(false);
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [isSignUp, setIsSignUp] = useState(false);
+  const [adminName, setAdminName] = useState('');
+  const [authError, setAuthError] = useState<string | null>(null);
+  const [isAuthenticating, setIsAuthenticating] = useState(false);
+
+  const t = translations[lang];
+
+  const toggleLanguage = () => {
+    const nextLang = lang === 'en' ? 'es' : 'en';
+    setLang(nextLang);
+    localStorage.setItem('dispatch_lang', nextLang);
+  };
+
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (u) => {
       setUser(u);
       if (u) {
         const adminStatus = await checkIsAdmin(u.uid);
-        setIsAdmin(adminStatus);
+        setIsAdmin(adminStatus || u.email === 'davidcordero1012@gmail.com');
       } else {
         setIsAdmin(false);
       }
@@ -52,10 +77,77 @@ export default function App() {
     }
   }
 
-  const handleLogin = () => signInWithPopup(auth, new GoogleAuthProvider());
+  const handleLoginSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!email.trim() || !password.trim()) return;
+    setIsAuthenticating(true);
+    setAuthError(null);
+    try {
+      await signInWithEmailAndPassword(auth, email.trim(), password);
+      setShowLoginForm(false);
+      setEmail('');
+      setPassword('');
+      setAuthError(null);
+    } catch (err: any) {
+      console.error(err);
+      if (err.code === 'auth/operation-not-allowed') {
+        setAuthError(lang === 'es' 
+          ? 'El inicio de sesión por correo/contraseña está desactivado en la consola de Firebase. Por favor, habilítelo.'
+          : 'Email/Password sign-in provider is disabled in your Firebase console. Please enable it.'
+        );
+      } else if (err.code === 'auth/wrong-password' || err.code === 'auth/user-not-found' || err.code === 'auth/invalid-credential') {
+        setAuthError(lang === 'es' ? 'Dirección de correo o contraseña incorrectas.' : 'Incorrect email or password credentials.');
+      } else {
+        setAuthError(err.message);
+      }
+    } finally {
+      setIsAuthenticating(false);
+    }
+  };
+
+  const handleSignUpSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!email.trim() || !password.trim() || !adminName.trim()) return;
+    setIsAuthenticating(true);
+    setAuthError(null);
+    try {
+      const cred = await createUserWithEmailAndPassword(auth, email.trim(), password);
+      await updateProfile(cred.user, { displayName: adminName.trim() });
+      
+      // Auto-add to admins collection if matching primary email
+      if (email.trim() === 'davidcordero1012@gmail.com') {
+        await addAdmin(cred.user.uid, email.trim());
+      }
+      
+      setShowLoginForm(false);
+      setEmail('');
+      setPassword('');
+      setAdminName('');
+      setAuthError(null);
+    } catch (err: any) {
+      console.error(err);
+      if (err.code === 'auth/operation-not-allowed') {
+        setAuthError(lang === 'es' 
+          ? 'El registro con correo/contraseña está deshabilitado en Firebase.'
+          : 'Email/Password registration is disabled in your Firebase console.'
+        );
+      } else {
+        setAuthError(err.message);
+      }
+    } finally {
+      setIsAuthenticating(false);
+    }
+  };
+
   const handleLogout = () => signOut(auth);
 
-  if (loading) return <div className="min-h-screen grid place-items-center"><div className="animate-spin rounded-full h-8 w-8 border-t-2 border-black"></div></div>;
+  if (loading) {
+    return (
+      <div className="min-h-screen grid place-items-center bg-[#0F1115]">
+        <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-blue-500"></div>
+      </div>
+    );
+  }
 
   const publicDashboard = !user ? (
     <div className="min-h-screen bg-[#0F1115] flex flex-col font-sans text-[#E2E8F0]">
@@ -66,15 +158,122 @@ export default function App() {
           </div>
           <h1 className="text-xl font-bold tracking-tight text-white">Daily <span className="text-blue-400">Dispatch</span></h1>
         </div>
-        <button onClick={handleLogin} className="flex items-center gap-2 px-6 py-2 bg-blue-600 hover:bg-blue-500 rounded-full text-sm font-bold text-white transition-all shadow-lg shadow-blue-900/20">
-          <LogIn className="w-4 h-4" />
-          Admin Login
-        </button>
-      </header>
-      <main className="flex-1 p-6 md:p-12 overflow-auto">
-        <div className="max-w-6xl mx-auto">
-          <Dashboard people={people} assignments={assignments} onUpdate={loadData} isAdmin={false} />
+        <div className="flex items-center gap-3">
+          <button 
+            type="button"
+            onClick={toggleLanguage}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-[#1b212c] hover:bg-[#232a39] border border-white/5 rounded-lg text-xs text-slate-300 font-semibold transition-all cursor-pointer"
+          >
+            <Globe className="w-3.5 h-3.5 text-blue-400" />
+            <span>{lang === 'es' ? 'EN' : 'ES'}</span>
+          </button>
+          <button 
+            type="button"
+            onClick={() => {
+              setShowLoginForm(!showLoginForm);
+              setAuthError(null);
+            }} 
+            className="flex items-center gap-2 px-5 py-2 bg-blue-600 hover:bg-blue-500 rounded-full text-xs font-bold text-white transition-all shadow-lg shadow-blue-900/20 cursor-pointer"
+          >
+            <LogIn className="w-3.5 h-3.5" />
+            {showLoginForm ? (lang === 'es' ? 'Volver' : 'Back') : t.adminLoginTitle}
+          </button>
         </div>
+      </header>
+      <main className="flex-1 p-6 md:p-12 overflow-auto flex flex-col justify-center items-center">
+        {showLoginForm ? (
+          <div className="w-full max-w-sm bg-[#151921] border border-white/10 rounded-2xl p-6 md:p-8 shadow-2xl relative">
+            <div className="text-center mb-6">
+              <h2 className="text-xl font-bold tracking-tight text-white">{isSignUp ? t.signUpBtn : t.adminLoginTitle}</h2>
+              <p className="text-xs text-slate-400 mt-2">{t.adminLoginDesc}</p>
+            </div>
+            
+            <form onSubmit={isSignUp ? handleSignUpSubmit : handleLoginSubmit} className="space-y-4">
+              {isSignUp && (
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500">{lang === 'es' ? 'Nombre de Administrador' : 'Admin Name'}</label>
+                  <input 
+                    type="text" 
+                    value={adminName}
+                    onChange={e => setAdminName(e.target.value)}
+                    required
+                    className="w-full px-4 py-2 bg-[#0F1115] border border-white/10 rounded-xl text-white text-sm focus:outline-none focus:border-blue-500 transition-colors"
+                    placeholder="e.g. David Cordero"
+                  />
+                </div>
+              )}
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500">{t.emailLabel}</label>
+                <input 
+                  type="email" 
+                  value={email}
+                  onChange={e => setEmail(e.target.value)}
+                  required
+                  className="w-full px-4 py-2 bg-[#0F1115] border border-white/10 rounded-xl text-white text-sm font-mono focus:outline-none focus:border-blue-500 transition-colors"
+                  placeholder="admin@example.com"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500">{t.passwordLabel}</label>
+                <input 
+                  type="password" 
+                  value={password}
+                  onChange={e => setPassword(e.target.value)}
+                  required
+                  className="w-full px-4 py-2 bg-[#0F1115] border border-white/10 rounded-xl text-white text-sm focus:outline-none focus:border-blue-500 transition-colors"
+                  placeholder="••••••••"
+                />
+              </div>
+
+              {authError && (
+                <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-xl flex gap-1.5 items-start text-xs text-red-400">
+                  <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+                  <span>{authError}</span>
+                </div>
+              )}
+
+              <button 
+                type="submit" 
+                disabled={isAuthenticating}
+                className="w-full py-3 bg-blue-600 hover:bg-blue-500 text-white rounded-xl font-bold text-xs uppercase tracking-widest mt-4 flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+              >
+                {isAuthenticating ? (
+                  <div className="animate-spin rounded-full h-4 w-4 border-t-2 border-white"></div>
+                ) : (
+                  isSignUp ? t.signUpBtn : t.loginBtn
+                )}
+              </button>
+            </form>
+
+            <div className="text-center mt-6 pt-6 border-t border-white/5">
+              <button 
+                type="button"
+                onClick={() => {
+                  setIsSignUp(!isSignUp);
+                  setAuthError(null);
+                }}
+                className="text-xs text-blue-400 hover:text-blue-300 font-semibold cursor-pointer transition-colors"
+              >
+                {isSignUp ? t.loginLink : t.signUpLink}
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div className="max-w-6xl w-full mx-auto space-y-8">
+            <div className="bg-blue-600/5 border border-blue-500/10 rounded-2xl p-6 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+              <div className="flex gap-4 items-start">
+                <div className="p-3 bg-blue-600/10 rounded-xl text-blue-400 shrink-0">
+                  <CheckCircle2 className="w-5 h-5" />
+                </div>
+                <div>
+                  <h4 className="font-bold text-white text-sm">{t.alertTitle}</h4>
+                  <p className="text-xs text-slate-400 leading-relaxed mt-1">{t.alertDesc}</p>
+                </div>
+              </div>
+            </div>
+            <Dashboard people={people} assignments={assignments} onUpdate={loadData} isAdmin={false} lang={lang} t={t} />
+          </div>
+        )}
       </main>
     </div>
   ) : null;
@@ -87,57 +286,75 @@ export default function App() {
     <div className="min-h-screen bg-[#0F1115] flex flex-col md:flex-row font-sans text-[#E2E8F0]">
       {/* Sidebar */}
       <aside className="w-full md:w-72 bg-[#151921] border-b md:border-b-0 md:border-r border-white/10 p-8 flex flex-col">
-        <div className="flex flex-col mb-12 px-2">
+        <div className="flex flex-col mb-10 px-2">
           <div className="flex items-center gap-3">
             <h1 className="text-2xl font-semibold tracking-tight text-white">ShiftAssign <span className="text-blue-400">Pro</span></h1>
           </div>
-          <p className="text-[10px] text-slate-500 uppercase font-bold tracking-widest mt-1">Collaboration Dispatcher</p>
+          <p className="text-[10px] text-slate-500 uppercase font-bold tracking-widest mt-1">{lang === 'es' ? 'Despachador Determinista' : 'Deterministic Dispatcher'}</p>
         </div>
         
-        <nav className="flex-1 space-y-3">
+        <nav className="flex-1 space-y-2">
           <NavItem 
             icon={<CalendarIcon className="w-5 h-5" />} 
-            label="Dashboard" 
+            label={t.dashboard} 
             active={view === 'dashboard'} 
             onClick={() => setView('dashboard')} 
           />
           <NavItem 
             icon={<Users className="w-5 h-5" />} 
-            label="Personnel Registry" 
+            label={t.personnel} 
             active={view === 'people'} 
             onClick={() => setView('people')} 
           />
           <NavItem 
             icon={<History className="w-5 h-5" />} 
-            label="History Logs" 
+            label={lang === 'es' ? 'Registro Histórico' : t.dispatchHistory} 
             active={view === 'history'} 
             onClick={() => setView('history')} 
           />
           {isAdmin && (
             <NavItem 
               icon={<RotateCcw className="w-5 h-5" />} 
-              label="Admin Settings" 
+              label={t.adminSettings} 
               active={view === 'admin'} 
               onClick={() => setView('admin')} 
             />
           )}
         </nav>
 
-        <div className="mt-auto pt-8 border-t border-white/5">
-          <div className="flex items-center gap-4 px-2 mb-6">
-            <img src={user.photoURL || ''} alt="" className="w-10 h-10 rounded-full border border-white/10 ring-2 ring-white/5" />
+        <div className="mt-auto pt-6 border-t border-white/5 space-y-4">
+          <button 
+            type="button"
+            onClick={toggleLanguage}
+            className="w-full flex items-center justify-between py-2.5 px-3 rounded-lg text-xs font-semibold text-slate-400 hover:text-white bg-[#0f1115]/40 hover:bg-[#0f1115]/80 transition-all border border-white/5 hover:border-white/10 cursor-pointer"
+          >
+            <span className="flex items-center gap-2">
+              <Globe className="w-4 h-4 text-blue-400" />
+              <span>{t.languageSelector}</span>
+            </span>
+            <span className="bg-blue-600/20 text-blue-400 px-1.5 py-0.5 rounded text-[10px] font-black uppercase tracking-wider">{lang.toUpperCase()}</span>
+          </button>
+
+          <div className="flex items-center gap-3.5 px-2">
+            {user.photoURL ? (
+              <img src={user.photoURL} alt="" className="w-9 h-9 rounded-full border border-white/10 ring-2 ring-white/5" />
+            ) : (
+              <div className="w-9 h-9 rounded-full bg-blue-600/30 text-blue-400 border border-blue-500/20 flex items-center justify-center font-bold text-sm shrink-0 leading-none">
+                {(user.displayName || user.email || 'A').charAt(0).toUpperCase()}
+              </div>
+            )}
             <div className="min-w-0">
               <div className="flex items-center gap-2">
-                <p className="text-sm font-bold truncate text-white">{user.displayName}</p>
+                <p className="text-sm font-bold truncate text-white">{user.displayName || (user.email ? user.email.split('@')[0] : 'Admin')}</p>
                 {isAdmin && <span className="bg-blue-500/20 text-blue-400 text-[8px] px-1.5 py-0.5 rounded border border-blue-500/20 font-black uppercase tracking-wider">Admin</span>}
               </div>
               <p className="text-[10px] text-slate-500 truncate">{user.email}</p>
               <p className="text-[9px] font-mono text-slate-600 truncate mt-0.5 select-all" title="Click to select UID">UID: {user.uid}</p>
             </div>
           </div>
-          <button onClick={handleLogout} className="w-full flex items-center justify-center gap-2 py-3 px-4 rounded-xl text-xs font-bold uppercase tracking-widest text-slate-500 hover:text-red-400 hover:bg-red-500/5 border border-transparent hover:border-red-500/10 transition-all">
+          <button onClick={handleLogout} className="w-full flex items-center justify-center gap-2 py-3 px-4 rounded-xl text-xs font-bold uppercase tracking-widest text-[#94A3B8] hover:text-red-400 hover:bg-red-500/5 border border-transparent hover:border-red-500/10 transition-all cursor-pointer">
             <LogOut className="w-4 h-4" />
-            Sign Out
+            {t.signOut}
           </button>
         </div>
       </aside>
@@ -145,10 +362,10 @@ export default function App() {
       {/* Main Content */}
       <main className="flex-1 overflow-auto p-6 md:p-10 bg-[#0F1115]">
         <div className="max-w-6xl mx-auto">
-          {view === 'dashboard' && <Dashboard people={people} assignments={assignments} onUpdate={loadData} isAdmin={isAdmin} />}
-          {view === 'people' && <PeopleManager people={people} onUpdate={loadData} isAdmin={isAdmin} />}
-          {view === 'history' && <HistoryView assignments={assignments} people={people} onUpdate={loadData} isAdmin={isAdmin} />}
-          {view === 'admin' && isAdmin && <AdminManager onUpdate={loadData} />}
+          {view === 'dashboard' && <Dashboard people={people} assignments={assignments} onUpdate={loadData} isAdmin={isAdmin} lang={lang} t={t} />}
+          {view === 'people' && <PeopleManager people={people} onUpdate={loadData} isAdmin={isAdmin} lang={lang} t={t} />}
+          {view === 'history' && <HistoryView assignments={assignments} people={people} onUpdate={loadData} isAdmin={isAdmin} lang={lang} t={t} />}
+          {view === 'admin' && isAdmin && <AdminManager onUpdate={loadData} lang={lang} t={t} />}
         </div>
       </main>
     </div>
@@ -171,7 +388,7 @@ function NavItem({ icon, label, active, onClick }: { icon: React.ReactNode, labe
   );
 }
 
-function Dashboard({ people, assignments, onUpdate, isAdmin }: { people: Person[], assignments: Assignment[], onUpdate: () => void, isAdmin: boolean }) {
+function Dashboard({ people, assignments, onUpdate, isAdmin, lang, t }: { people: Person[], assignments: Assignment[], onUpdate: () => void, isAdmin: boolean, lang: Language, t: any }) {
   const today = startOfToday();
   const [currentDate, setCurrentDate] = useState(today);
   const [isSaving, setIsSaving] = useState(false);
@@ -262,25 +479,31 @@ function Dashboard({ people, assignments, onUpdate, isAdmin }: { people: Person[
     <div className="space-y-10">
       <header className="flex flex-col lg:flex-row lg:items-center justify-between gap-6 border-b border-white/5 pb-8">
         <div>
-          <h2 className="text-3xl font-bold tracking-tight text-white">Daily Dispatch</h2>
-          <p className="text-slate-400 font-medium mt-1">Assignments are generated once and timestamped for validity.</p>
+          <h2 className="text-3xl font-bold tracking-tight text-white">{t.dailyDispatch}</h2>
+          <p className="text-slate-400 font-medium mt-1">{t.assignmentsDesc}</p>
         </div>
         <div className="flex gap-4">
           <div className="flex bg-[#151921] p-1 rounded-xl border border-white/5">
             <button 
+              type="button"
               onClick={() => setRaffleType('morning')}
-              className={`px-4 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${raffleType === 'morning' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20' : 'text-slate-500 hover:text-slate-300'}`}
-            >Morning</button>
+              className={`px-4 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all cursor-pointer ${raffleType === 'morning' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20' : 'text-slate-500 hover:text-slate-300'}`}
+            >
+              {t.morning}
+            </button>
             <button 
+              type="button"
               onClick={() => setRaffleType('afternoon')}
-              className={`px-4 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${raffleType === 'afternoon' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20' : 'text-slate-500 hover:text-slate-300'}`}
-            >Afternoon</button>
+              className={`px-4 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all cursor-pointer ${raffleType === 'afternoon' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20' : 'text-slate-500 hover:text-slate-300'}`}
+            >
+              {t.afternoon}
+            </button>
           </div>
           <div className="flex flex-col gap-1.5 min-w-[200px]">
-            <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Selected Date</label>
+            <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500">{t.selectedDate}</label>
             <input 
               type="date" 
-              className="input font-mono text-sm"
+              className="input font-mono text-sm cursor-pointer"
               value={format(currentDate, 'yyyy-MM-dd')}
               onChange={(e) => setCurrentDate(new Date(e.target.value + 'T12:00:00'))}
             />
@@ -294,9 +517,11 @@ function Dashboard({ people, assignments, onUpdate, isAdmin }: { people: Person[
           return (
             <div key={team} className="card p-5 border border-white/5 relative overflow-hidden group">
               <div className={`absolute top-0 left-0 w-1 h-full ${shift === '24h' ? 'bg-orange-500' : shift === 'Free' ? 'bg-slate-700' : 'bg-emerald-500'}`}></div>
-              <span className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Guardia {team}</span>
-              <p className={`text-xl font-mono font-bold mt-1 ${shift === '24h' ? 'text-orange-400' : shift === 'Free' ? 'text-slate-500' : 'text-emerald-400'}`}>
-                {shift === '8h' ? '8H SHIFT' : shift === '24h' ? '24H ACTIVE' : 'OFF-DUTY'}
+              <span className="text-[10px] font-bold uppercase tracking-widest text-slate-500">
+                {t.guardiaGroup.replace('{team}', team)}
+              </span>
+              <p className={`text-sm font-mono font-bold mt-1.5 ${shift === '24h' ? 'text-orange-400' : shift === 'Free' ? 'text-slate-500' : 'text-emerald-400'}`}>
+                {shift === '8h' ? t.shift8h : shift === '24h' ? t.shift24h : t.offDuty}
               </p>
             </div>
           );
@@ -308,11 +533,11 @@ function Dashboard({ people, assignments, onUpdate, isAdmin }: { people: Person[
         <section className="xl:col-span-7 flex flex-col">
           <div className="flex items-center justify-between mb-4 px-2">
             <div>
-              <h3 className="font-bold text-lg text-white">Personnel Registry</h3>
-              <p className="text-xs text-slate-500">Availability filtered by 8h shift & collab thresholds</p>
+              <h3 className="font-bold text-lg text-white">{t.personnelRegistry}</h3>
+              <p className="text-xs text-slate-500">{t.availabilityFilter}</p>
             </div>
             <span className="bg-white/5 text-slate-400 border border-white/10 px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest">
-              {availablePeople.length} Valid
+              {t.validCount.replace('{count}', String(availablePeople.length))}
             </span>
           </div>
           
@@ -322,16 +547,16 @@ function Dashboard({ people, assignments, onUpdate, isAdmin }: { people: Person[
                 <thead className="bg-[#151921] sticky top-0 z-10 border-b border-white/5 text-[10px] uppercase text-slate-500 tracking-widest">
                   <tr>
                     <th className="px-6 py-4 cursor-pointer hover:text-white transition-colors" onClick={() => handleSort('name')}>
-                      Name {sortField === 'name' && (sortOrder === 'asc' ? '↑' : '↓')}
+                      {t.name} {sortField === 'name' && (sortOrder === 'asc' ? '↑' : '↓')}
                     </th>
                     <th className="px-6 py-4 cursor-pointer hover:text-white transition-colors" onClick={() => handleSort('team')}>
-                      Guardia {sortField === 'team' && (sortOrder === 'asc' ? '↑' : '↓')}
+                      {t.guardia} {sortField === 'team' && (sortOrder === 'asc' ? '↑' : '↓')}
                     </th>
                     <th className="px-6 py-4 text-center cursor-pointer hover:text-white transition-colors" onClick={() => handleSort('collabs')}>
-                      Collabs {sortField === 'collabs' && (sortOrder === 'asc' ? '↑' : '↓')}
+                      {t.collabs} {sortField === 'collabs' && (sortOrder === 'asc' ? '↑' : '↓')}
                     </th>
                     <th className="px-6 py-4 text-right cursor-pointer hover:text-white transition-colors" onClick={() => handleSort('status')}>
-                      Status {sortField === 'status' && (sortOrder === 'asc' ? '↑' : '↓')}
+                      {t.status} {sortField === 'status' && (sortOrder === 'asc' ? '↑' : '↓')}
                     </th>
                   </tr>
                 </thead>
@@ -346,8 +571,8 @@ function Dashboard({ people, assignments, onUpdate, isAdmin }: { people: Person[
                         <td className="px-6 py-4 font-medium text-sm text-white">
                           <div className="flex items-center gap-2">
                             {p.name}
-                            {p.isEmergencyDept && <span className="text-[8px] bg-red-500/20 text-red-500 px-1 rounded font-bold uppercase ring-1 ring-red-500/10">ED</span>}
-                            {p.limitOverride && <span className="text-[8px] bg-purple-500/20 text-purple-400 px-1 rounded font-bold uppercase ring-1 ring-purple-500/10">Override</span>}
+                            {p.isEmergencyDept && <span className="text-[8px] bg-red-500/20 text-red-500 px-1.5 py-0.5 rounded font-bold uppercase ring-1 ring-red-500/10">ED</span>}
+                            {p.limitOverride && <span className="text-[8px] bg-purple-500/20 text-purple-400 px-1.5 py-0.5 rounded font-bold uppercase ring-1 ring-purple-500/10">Override</span>}
                           </div>
                         </td>
                         <td className="px-6 py-4 text-slate-400 font-mono text-xs">G{p.team}</td>
@@ -358,15 +583,15 @@ function Dashboard({ people, assignments, onUpdate, isAdmin }: { people: Person[
                         </td>
                         <td className="px-6 py-4 text-right">
                           {isEligible ? (
-                            <span className="badge-emerald">{raffleType === 'morning' ? '8H Eligible' : 'Shift Eligible'}</span>
+                            <span className="badge-emerald">{raffleType === 'morning' ? t.eligible8h : t.eligibleShift}</span>
                           ) : p.isEmergencyDept ? (
-                            <span className="badge-red">ED Block</span>
+                            <span className="badge-red">{t.edBlock}</span>
                           ) : p.collaborationCount >= 6 && !p.limitOverride ? (
-                            <span className="badge-red">Max Collab</span>
+                            <span className="badge-red">{t.maxCollab}</span>
                           ) : shift === '24h' && raffleType === 'morning' ? (
-                            <span className="badge-orange">24H Conflict</span>
+                            <span className="badge-orange">{t.conflict24h}</span>
                           ) : (
-                            <span className="bg-slate-700/40 text-slate-500 px-2 py-0.5 rounded text-[10px] font-bold uppercase">Off-Duty</span>
+                            <span className="bg-slate-700/40 text-slate-500 px-2 py-0.5 rounded text-[10px] font-bold uppercase">{t.offDuty}</span>
                           )}
                         </td>
                       </tr>
@@ -374,7 +599,7 @@ function Dashboard({ people, assignments, onUpdate, isAdmin }: { people: Person[
                   })}
                   {people.length === 0 && (
                     <tr>
-                      <td colSpan={4} className="px-6 py-20 text-center text-slate-500 italic">No personnel found.</td>
+                      <td colSpan={4} className="px-6 py-20 text-center text-slate-500 italic">{t.noPersonnel}</td>
                     </tr>
                   )}
                 </tbody>
@@ -387,19 +612,22 @@ function Dashboard({ people, assignments, onUpdate, isAdmin }: { people: Person[
         <section className="xl:col-span-5 flex flex-col">
           <div className="flex items-center justify-between mb-4 px-2">
             <div>
-              <h2 className="text-sm font-bold uppercase tracking-wider text-blue-400">Selection {raffleType === 'morning' ? 'Morning' : 'Afternoon'}</h2>
-              <p className="text-xs text-slate-500 mt-1">Ranked priority for collaboration assignments</p>
+              <h2 className="text-sm font-bold uppercase tracking-wider text-blue-400">
+                {t.selectionTitle.replace('{type}', raffleType === 'morning' ? t.morning : t.afternoon)}
+              </h2>
+              <p className="text-xs text-slate-500 mt-1">{t.selectionDesc}</p>
               {existingAssignment?.createdAt && (
                 <p className="text-[9px] font-mono text-slate-600 mt-1 uppercase tracking-tighter">
-                  Generated: {format(new Date(existingAssignment.createdAt), 'MMM dd, HH:mm:ss')}
+                  {t.generatedText.replace('{time}', format(new Date(existingAssignment.createdAt), 'MMM dd, HH:mm:ss'))}
                 </p>
               )}
             </div>
             {!existingAssignment && (
               <button 
+                type="button"
                 disabled={availablePeople.length === 0}
                 onClick={generateList} 
-                className="p-2 text-blue-400 hover:bg-blue-400/10 rounded-lg transition-all"
+                className="p-2 text-blue-400 hover:bg-blue-400/10 rounded-lg transition-all cursor-pointer"
               >
                 <RotateCcw className="w-5 h-5" />
               </button>
@@ -408,9 +636,11 @@ function Dashboard({ people, assignments, onUpdate, isAdmin }: { people: Person[
 
           <div className="card flex-1 flex flex-col bg-[#11141a] p-4 gap-3 min-h-[450px]">
             {displayedList.length === 0 ? (
-              <div className="flex-1 flex flex-col items-center justify-center text-slate-600 bg-[#0A0C10] rounded-xl border border-dashed border-white/5">
+              <div className="flex-1 flex flex-col items-center justify-center text-slate-600 bg-[#0A0C10] rounded-xl border border-dashed border-white/5 p-6">
                 <RotateCcw className={`w-12 h-12 mb-4 transition-all ${isSaving ? 'animate-spin opacity-50' : 'opacity-10'}`} />
-                <p className="text-sm font-medium tracking-wide">{isSaving ? 'Generating Authorized Dispatch...' : 'Generate selection queue'}</p>
+                <p className="text-sm font-medium tracking-wide text-center">
+                  {isSaving ? t.generatingBtn : t.generateBtn}
+                </p>
               </div>
             ) : (
               displayedList.map((p, i) => (
@@ -419,7 +649,7 @@ function Dashboard({ people, assignments, onUpdate, isAdmin }: { people: Person[
                   <div className="flex-1">
                     <p className="text-sm font-bold text-white">{p.name}</p>
                     <p className={`text-[10px] font-bold uppercase tracking-widest ${i === 0 ? 'text-blue-300/60' : 'text-slate-500'}`}>
-                      Collabs: {p.collaborationCount}/6 • Guardia {p.team}
+                      {t.collabs}: {p.collaborationCount}/6 • {t.guardia} {p.team}
                     </p>
                   </div>
                   {i === 0 && <div className="h-3 w-3 rounded-full bg-blue-400 shadow-[0_0_12px_rgba(96,165,250,0.8)]"></div>}
@@ -429,7 +659,7 @@ function Dashboard({ people, assignments, onUpdate, isAdmin }: { people: Person[
             
             {existingAssignment && (
               <div className="mt-auto p-4 bg-blue-500/5 border border-blue-500/10 rounded-xl text-center">
-                <p className="text-[10px] uppercase font-black tracking-widest text-blue-400/60">Dispatch Committed</p>
+                <p className="text-[10px] uppercase font-black tracking-widest text-blue-400/60">{t.dispatchCommitted}</p>
               </div>
             )}
           </div>
@@ -460,7 +690,7 @@ function Dashboard({ people, assignments, onUpdate, isAdmin }: { people: Person[
   );
 }
 
-function PeopleManager({ people, onUpdate, isAdmin }: { people: Person[], onUpdate: () => void, isAdmin: boolean }) {
+function PeopleManager({ people, onUpdate, isAdmin, lang, t }: { people: Person[], onUpdate: () => void, isAdmin: boolean, lang: Language, t: any }) {
   const [name, setName] = useState('');
   const [team, setTeam] = useState<Team>('1');
   const [isEmergencyDept, setIsEmergencyDept] = useState(false);
@@ -540,20 +770,26 @@ function PeopleManager({ people, onUpdate, isAdmin }: { people: Person[], onUpda
     <div className="space-y-10">
       <header className="border-b border-white/5 pb-8 flex flex-col md:flex-row justify-between items-start md:items-end gap-6">
         <div>
-          <h2 className="text-3xl font-bold tracking-tight text-white">Personnel Registry</h2>
-          <p className="text-slate-400 font-medium mt-1">Onboard and manage personnel and their rotation groups.</p>
+          <h2 className="text-3xl font-bold tracking-tight text-white">{t.onboardTitle}</h2>
+          <p className="text-slate-400 font-medium mt-1">{t.onboardDesc}</p>
         </div>
         <div className="flex bg-[#151921] p-1 rounded-xl border border-white/5">
           <button 
+            type="button"
             onClick={() => setTeamFilter('all')}
-            className={`px-4 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${teamFilter === 'all' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20' : 'text-slate-500 hover:text-slate-300'}`}
-          >All</button>
+            className={`px-4 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all cursor-pointer ${teamFilter === 'all' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20' : 'text-slate-500 hover:text-slate-300'}`}
+          >
+            {t.all}
+          </button>
           {['1', '2', '3', '4'].map(t => (
             <button 
               key={t}
+              type="button"
               onClick={() => setTeamFilter(t as Team)}
-              className={`px-4 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${teamFilter === t ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20' : 'text-slate-500 hover:text-slate-300'}`}
-            >G{t}</button>
+              className={`px-4 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all cursor-pointer ${teamFilter === t ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20' : 'text-slate-500 hover:text-slate-300'}`}
+            >
+              G{t}
+            </button>
           ))}
         </div>
       </header>
@@ -561,12 +797,12 @@ function PeopleManager({ people, onUpdate, isAdmin }: { people: Person[], onUpda
       <div className="grid grid-cols-1 xl:grid-cols-12 gap-10 items-start">
         {isAdmin && (
           <section className="xl:col-span-4 bg-[#151921] p-8 rounded-2xl border border-white/5 shadow-2xl h-fit sticky top-10">
-            <h3 className="font-bold text-lg text-white mb-8 border-b border-white/5 pb-4">Onboard Personnel</h3>
+            <h3 className="font-bold text-lg text-white mb-8 border-b border-white/5 pb-4">{t.onboardHeader}</h3>
             <form onSubmit={handleSubmit} className="space-y-6">
               <div className="space-y-2">
                 <div className="flex justify-between items-end mb-1">
-                  <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Personnel Roster</label>
-                  <span className="text-[8px] font-mono text-slate-600 uppercase">Comma or line-separated</span>
+                  <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500">{t.personnelRoster}</label>
+                  <span className="text-[8px] font-mono text-slate-600 uppercase">{t.commaSeparated}</span>
                 </div>
                 <textarea 
                   value={name}
@@ -576,14 +812,14 @@ function PeopleManager({ people, onUpdate, isAdmin }: { people: Person[], onUpda
                 />
               </div>
               <div className="space-y-2">
-                <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Assigned Guardia Group</label>
+                <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500">{t.groupLabel}</label>
                 <div className="grid grid-cols-4 gap-3">
                   {(['1', '2', '3', '4'] as Team[]).map(t => (
                     <button
                       key={t}
                       type="button"
                       onClick={() => setTeam(t)}
-                      className={`relative py-3 rounded-xl font-bold font-mono transition-all border ${team === t ? 'bg-blue-600 text-white border-blue-500 shadow-lg shadow-blue-900/30' : 'bg-[#0F1115] text-slate-500 border-white/5 hover:border-white/10'}`}
+                      className={`relative py-3 rounded-xl font-bold font-mono transition-all border cursor-pointer ${team === t ? 'bg-blue-600 text-white border-blue-500 shadow-lg shadow-blue-900/30' : 'bg-[#0F1115] text-slate-500 border-white/5 hover:border-white/10'}`}
                     >
                       {t}
                       <div className={`absolute bottom-0 left-1/2 -translate-x-1/2 w-4 h-0.5 rounded-full ${getTeamColor(t as Team)} opacity-50`}></div>
@@ -593,20 +829,21 @@ function PeopleManager({ people, onUpdate, isAdmin }: { people: Person[], onUpda
               </div>
               <div className="flex items-center justify-between p-4 bg-[#0F1115] rounded-xl border border-white/5">
                 <div className="flex flex-col">
-                  <span className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Emergency Dept</span>
-                  <span className="text-xs text-slate-400">Always ineligible for selection</span>
+                  <span className="text-[10px] font-bold uppercase tracking-widest text-slate-500">{t.edLabel}</span>
+                  <span className="text-xs text-slate-400">{t.edDesc}</span>
                 </div>
                 <button
                   type="button"
                   onClick={() => setIsEmergencyDept(!isEmergencyDept)}
-                  className={`w-12 h-6 rounded-full transition-all relative ${isEmergencyDept ? 'bg-red-600' : 'bg-slate-700'}`}
+                  className="w-12 h-6 rounded-full transition-all relative cursor-pointer bg-slate-700"
+                  style={{ backgroundColor: isEmergencyDept ? '#DC2626' : undefined }}
                 >
                   <div className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-all ${isEmergencyDept ? 'left-7' : 'left-1'}`} />
                 </button>
               </div>
-              <button disabled={isSubmitting} className="w-full btn-primary py-4 mt-4 flex items-center justify-center gap-3 uppercase tracking-widest text-xs font-black">
+              <button disabled={isSubmitting} className="w-full btn-primary py-4 mt-4 flex items-center justify-center gap-3 uppercase tracking-widest text-xs font-black cursor-pointer">
                 <Plus className="w-5 h-5" />
-                {isSubmitting ? 'Processing Roster...' : 'Register Personnel'}
+                {isSubmitting ? t.processingBtn : t.registerBtn}
               </button>
             </form>
           </section>
@@ -614,12 +851,14 @@ function PeopleManager({ people, onUpdate, isAdmin }: { people: Person[], onUpda
 
         <section className={`${isAdmin ? 'xl:col-span-8' : 'xl:col-span-12'} flex flex-col gap-4`}>
           <div className="flex items-center justify-between px-2 mb-2">
-            <h3 className="font-bold text-lg text-white">Registry Database</h3>
+            <h3 className="font-bold text-lg text-white">{t.registryDatabase}</h3>
             <div className="flex gap-3">
-              {['1', '2', '3', '4'].map(t => (
-                <div key={t} className="flex flex-col items-end opacity-50">
-                   <span className="text-[9px] font-bold text-slate-600 uppercase tracking-tighter">Guardia {t}</span>
-                   <span className={`text-xs font-mono font-bold ${getTeamColor(t as Team).replace('bg-', 'text-')}`}>{people.filter(p => p.team === t).length}</span>
+              {['1', '2', '3', '4'].map(tNum => (
+                <div key={tNum} className="flex flex-col items-end opacity-50">
+                    <span className="text-[9px] font-bold text-slate-600 uppercase tracking-tighter">
+                      {t.guardiaGroup.replace('{team}', tNum)}
+                    </span>
+                    <span className={`text-xs font-mono font-bold ${getTeamColor(tNum as Team).replace('bg-', 'text-')}`}>{people.filter(p => p.team === tNum).length}</span>
                 </div>
               ))}
             </div>
@@ -631,15 +870,15 @@ function PeopleManager({ people, onUpdate, isAdmin }: { people: Person[], onUpda
                 <thead className="bg-[#151921] border-b border-white/5 text-[10px] uppercase text-slate-500 tracking-widest">
                   <tr>
                     <th className="px-6 py-4 cursor-pointer hover:text-white transition-colors" onClick={() => handleSort('name')}>
-                      Name {sortField === 'name' && (sortOrder === 'asc' ? '↑' : '↓')}
+                      {t.name} {sortField === 'name' && (sortOrder === 'asc' ? '↑' : '↓')}
                     </th>
                     <th className="px-6 py-4 cursor-pointer hover:text-white transition-colors" onClick={() => handleSort('team')}>
-                      Guardia {sortField === 'team' && (sortOrder === 'asc' ? 'asc' === sortOrder ? '↑' : '↓' : '')}
+                      {t.guardia} {sortField === 'team' && (sortOrder === 'asc' ? 'asc' === sortOrder ? '↑' : '↓' : '')}
                     </th>
                     <th className="px-6 py-4 text-center cursor-pointer hover:text-white transition-colors" onClick={() => handleSort('collabs')}>
-                      Collabs {sortField === 'collabs' && (sortOrder === 'asc' ? '↑' : '↓')}
+                      {t.collabs} {sortField === 'collabs' && (sortOrder === 'asc' ? '↑' : '↓')}
                     </th>
-                    <th className="px-6 py-4 text-right">Actions</th>
+                    <th className="px-6 py-4 text-right">{lang === 'es' ? 'Acciones' : 'Actions'}</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-white/5">
@@ -650,7 +889,7 @@ function PeopleManager({ people, onUpdate, isAdmin }: { people: Person[], onUpda
                     else if (sortField === 'collabs') compare = a.collaborationCount - b.collaborationCount;
                     return sortOrder === 'asc' ? compare : -compare;
                   }).map(p => (
-                   <tr key={p.id} className="hover:bg-white/[0.02] group transition-colors">
+                    <tr key={p.id} className="hover:bg-white/[0.02] group transition-colors">
                       <td className="px-6 py-4">
                         <div className="flex items-center gap-4">
                           <div className={`w-9 h-9 rounded-full bg-[#0F1115] border border-white/10 flex items-center justify-center font-bold text-sm shadow-inner ${getTeamColor(p.team).replace('bg-', 'text-')}`}>
@@ -658,9 +897,9 @@ function PeopleManager({ people, onUpdate, isAdmin }: { people: Person[], onUpda
                           </div>
                           <div>
                              <p className="font-bold text-sm text-white">{p.name}</p>
-                             <div className="flex gap-1">
-                               {p.collaborationCount >= 6 && <span className="badge-red text-[8px] px-1 py-0 shadow-[0_0_8px_rgba(239,68,68,0.2)]">Max Threshold</span>}
-                               {p.isEmergencyDept && <span className="bg-red-500/10 text-red-500 border border-red-500/20 text-[8px] font-bold px-1 rounded uppercase">Emergency Dept</span>}
+                             <div className="flex gap-1 mt-1">
+                               {p.collaborationCount >= 6 && <span className="badge-red text-[8px] px-1.5 py-0.5 shadow-[0_0_8px_rgba(239,68,68,0.2)]">{t.maxThreshold}</span>}
+                               {p.isEmergencyDept && <span className="bg-red-500/10 text-red-500 border border-red-500/20 text-[8px] font-bold px-1.5 py-0.5 rounded uppercase">{t.emergencyDept}</span>}
                              </div>
                           </div>
                         </div>
@@ -678,17 +917,19 @@ function PeopleManager({ people, onUpdate, isAdmin }: { people: Person[], onUpda
                                 {isAdmin && (
                                   <div className="flex gap-1">
                                     <button 
+                                     type="button"
                                      onClick={() => updateCollabCount(p.id, Math.max(0, p.collaborationCount - 1)).then(onUpdate)}
-                                     className="p-1 hover:bg-white/10 rounded text-[10px] text-slate-500"
+                                     className="p-1 hover:bg-white/10 rounded text-[10px] text-slate-500 cursor-pointer"
                                     >-</button>
                                     <button 
+                                     type="button"
                                      onClick={() => updateCollabCount(p.id, p.collaborationCount + 1).then(onUpdate)}
-                                     className="p-1 hover:bg-white/10 rounded text-[10px] text-slate-500"
+                                     className="p-1 hover:bg-white/10 rounded text-[10px] text-slate-500 cursor-pointer"
                                     >+</button>
                                   </div>
                                 )}
                               </div>
-                              <span className="text-[8px] text-slate-600 uppercase font-black">{p.limitOverride ? 'OVERRIDDEN' : 'Limit: 6'}</span>
+                              <span className="text-[8px] text-slate-600 uppercase font-black">{p.limitOverride ? t.overridden : t.limitMarker}</span>
                            </div>
                          </td>
                          <td className="px-6 py-4 text-right">
@@ -696,40 +937,45 @@ function PeopleManager({ people, onUpdate, isAdmin }: { people: Person[], onUpda
                              {isAdmin && (
                                <div className="flex flex-col gap-1 items-end">
                                  <button
+                                   type="button"
                                    onClick={() => toggleEmergencyDept(p.id, p.isEmergencyDept).then(onUpdate)}
-                                   className={`px-2 py-1 rounded text-[8px] font-black uppercase transition-all whitespace-nowrap ${p.isEmergencyDept ? 'bg-red-500/20 text-red-400 border border-red-500/30' : 'bg-slate-800 text-slate-500 hover:text-slate-300 border border-transparent'}`}
+                                   className={`px-2 py-1 rounded text-[8px] font-black uppercase transition-all whitespace-nowrap cursor-pointer ${p.isEmergencyDept ? 'bg-red-500/20 text-red-400 border border-red-500/30' : 'bg-slate-800 text-slate-500 hover:text-slate-300 border border-transparent'}`}
                                  >
-                                   {p.isEmergencyDept ? 'ED Active' : 'Set ED'}
+                                   {p.isEmergencyDept ? t.edActive : t.setEd}
                                  </button>
                                  <button
+                                   type="button"
                                    onClick={() => toggleLimitOverride(p.id, !!p.limitOverride).then(onUpdate)}
-                                   className={`px-2 py-1 rounded text-[8px] font-black uppercase transition-all whitespace-nowrap ${p.limitOverride ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'bg-slate-800 text-slate-500 hover:text-slate-300 border border-transparent'}`}
+                                   className={`px-2 py-1 rounded text-[8px] font-black uppercase transition-all whitespace-nowrap cursor-pointer ${p.limitOverride ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'bg-slate-800 text-slate-500 hover:text-slate-300 border border-transparent'}`}
                                  >
-                                   {p.limitOverride ? 'Override On' : 'Override Limit'}
+                                   {p.limitOverride ? t.overrideOn : t.overrideLimit}
                                  </button>
                                </div>
                              )}
                              {isAdmin && (
                                <div className="flex items-center gap-1">
                                  {deletingId === p.id ? (
-                                   <div className="flex gap-1 animate-in fade-in slide-in-from-right-2 duration-300">
-                                     <button 
-                                       onClick={() => handleDelete(p.id)}
-                                       className="px-5 py-2.5 bg-red-600 text-white text-[10px] font-black uppercase rounded-lg shadow-xl shadow-red-900/40 hover:bg-red-500 transition-all active:scale-95"
-                                     >Confirm</button>
-                                     <button 
-                                       onClick={() => setDeletingId(null)}
-                                       className="px-5 py-2.5 bg-slate-700 text-slate-300 text-[10px] font-black uppercase rounded-lg hover:bg-slate-600 transition-all active:scale-95"
-                                     >Cancel</button>
-                                   </div>
+                                    <div className="flex gap-1 animate-in fade-in slide-in-from-right-2 duration-300">
+                                      <button 
+                                        type="button"
+                                        onClick={() => handleDelete(p.id)}
+                                        className="px-5 py-2.5 bg-red-600 text-white text-[10px] font-black uppercase rounded-lg shadow-xl shadow-red-900/40 hover:bg-red-500 transition-all active:scale-95 cursor-pointer"
+                                      >{t.confirm}</button>
+                                      <button 
+                                        type="button"
+                                        onClick={() => setDeletingId(null)}
+                                        className="px-5 py-2.5 bg-slate-700 text-slate-300 text-[10px] font-black uppercase rounded-lg hover:bg-slate-600 transition-all active:scale-95 cursor-pointer"
+                                      >{t.cancel}</button>
+                                    </div>
                                  ) : (
                                    <button 
+                                     type="button"
                                      onClick={(e) => {
                                        e.stopPropagation();
                                        setDeletingId(p.id);
                                      }}
                                      className="p-3 text-slate-600 hover:text-red-500 transition-all opacity-40 hover:opacity-100 bg-white/5 hover:bg-red-500/10 rounded-xl cursor-pointer flex-shrink-0"
-                                     title="Delete personnel"
+                                     title={t.deletePersonnel}
                                    >
                                      <Trash2 className="w-5 h-5" />
                                    </button>
@@ -738,11 +984,11 @@ function PeopleManager({ people, onUpdate, isAdmin }: { people: Person[], onUpda
                              )}
                            </div>
                          </td>
-                   </tr>
+                    </tr>
                   ))}
                   {people.length === 0 && (
                     <tr>
-                      <td colSpan={4} className="px-6 py-20 text-center text-slate-500 italic">Database is empty. Personnel required.</td>
+                      <td colSpan={4} className="px-6 py-20 text-center text-slate-500 italic">{t.databaseEmpty}</td>
                     </tr>
                   )}
                 </tbody>
@@ -755,7 +1001,7 @@ function PeopleManager({ people, onUpdate, isAdmin }: { people: Person[], onUpda
   );
 }
 
-function AdminManager({ onUpdate }: { onUpdate: () => void }) {
+function AdminManager({ onUpdate, lang, t }: { onUpdate: () => void, lang: Language, t: any }) {
   const [newAdminUid, setNewAdminUid] = useState('');
   const [newAdminEmail, setNewAdminEmail] = useState('');
   const [isAdding, setIsAdding] = useState(false);
@@ -768,11 +1014,11 @@ function AdminManager({ onUpdate }: { onUpdate: () => void }) {
       await addAdmin(newAdminUid, newAdminEmail);
       setNewAdminUid('');
       setNewAdminEmail('');
-      alert('Admin record created successfully.');
+      alert(t.successAdminCreated);
       onUpdate();
     } catch (error: any) {
       console.error(error);
-      alert('Failed to add admin. Check permissions.');
+      alert(t.failedAdminCreated);
     } finally {
       setIsAdding(false);
     }
@@ -781,26 +1027,26 @@ function AdminManager({ onUpdate }: { onUpdate: () => void }) {
   return (
     <div className="space-y-10">
       <header className="border-b border-white/5 pb-8">
-        <h2 className="text-3xl font-bold tracking-tight text-white">System Administration</h2>
-        <p className="text-slate-400 font-medium mt-1">Manage elevated privileges and system configurations.</p>
+        <h2 className="text-3xl font-bold tracking-tight text-white">{t.systemAdmin}</h2>
+        <p className="text-slate-400 font-medium mt-1">{t.adminDesc}</p>
       </header>
 
       <div className="grid grid-cols-1 xl:grid-cols-12 gap-10 items-start">
         <section className="xl:col-span-5 bg-[#151921] p-8 rounded-2xl border border-white/5 shadow-2xl h-fit">
-          <h3 className="font-bold text-lg text-white mb-8 border-b border-white/5 pb-4">Authorize New Admin</h3>
+          <h3 className="font-bold text-lg text-white mb-8 border-b border-white/5 pb-4">{t.authorizeTitle}</h3>
           <form onSubmit={handleAddAdmin} className="space-y-6">
             <div className="space-y-2">
-              <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500">User UID</label>
+              <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500">{t.userUid}</label>
               <input 
                 value={newAdminUid}
                 onChange={e => setNewAdminUid(e.target.value)}
                 className="input w-full text-xs font-mono" 
                 placeholder="Paste UID here..." 
               />
-              <p className="text-[9px] text-slate-600">The user can find their UID in their profile section.</p>
+              <p className="text-[9px] text-slate-600">{t.uidHint}</p>
             </div>
             <div className="space-y-2">
-              <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Official Email</label>
+              <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500">{t.officialEmail}</label>
               <input 
                 type="email"
                 value={newAdminEmail}
@@ -809,9 +1055,9 @@ function AdminManager({ onUpdate }: { onUpdate: () => void }) {
                 placeholder="email@example.com" 
               />
             </div>
-            <button disabled={isAdding} className="w-full btn-primary py-4 mt-4 flex items-center justify-center gap-3 uppercase tracking-widest text-xs font-black">
+            <button disabled={isAdding} className="w-full btn-primary py-4 mt-4 flex items-center justify-center gap-3 uppercase tracking-widest text-xs font-black cursor-pointer">
               <CheckCircle2 className="w-5 h-5" />
-              {isAdding ? 'Authorizing...' : 'Authorize Admin'}
+              {isAdding ? t.authorizingBtn : t.authorizeBtn}
             </button>
           </form>
         </section>
@@ -822,24 +1068,23 @@ function AdminManager({ onUpdate }: { onUpdate: () => void }) {
               <AlertTriangle className="w-6 h-6" />
             </div>
             <div>
-              <h4 className="font-bold text-white mb-2">Pre-deployment Advisory</h4>
+              <h4 className="font-bold text-white mb-2">{t.advisoryTitle}</h4>
               <p className="text-sm text-slate-400 leading-relaxed italic">
-                Authorized administrators have full write/delete access across the entire registry. 
-                Ensure UIDs are verified before granting administrative status.
+                {t.advisoryDesc}
               </p>
             </div>
           </div>
           
           <div className="p-8 bg-black/20 rounded-2xl border border-white/5">
-            <h4 className="text-xs font-black uppercase tracking-[0.2em] text-slate-500 mb-4">Operational Status</h4>
+            <h4 className="text-xs font-black uppercase tracking-[0.2em] text-slate-500 mb-4">{t.operationalStatus}</h4>
             <div className="grid grid-cols-2 gap-4">
               <div className="bg-[#151921] p-5 rounded-xl border border-white/5">
-                <p className="text-[10px] font-black uppercase tracking-widest text-slate-600">Database Engine</p>
-                <p className="text-xl font-mono font-black text-emerald-500 mt-1">SECURE</p>
+                <p className="text-[10px] font-black uppercase tracking-widest text-slate-600">{t.dbEngine}</p>
+                <p className="text-xl font-mono font-black text-emerald-500 mt-1">{t.secure}</p>
               </div>
               <div className="bg-[#151921] p-5 rounded-xl border border-white/5">
-                <p className="text-[10px] font-black uppercase tracking-widest text-slate-600">Encryption Layer</p>
-                <p className="text-xl font-mono font-black text-emerald-500 mt-1">AES-256</p>
+                <p className="text-[10px] font-black uppercase tracking-widest text-slate-600">{t.encryption}</p>
+                <p className="text-xl font-mono font-black text-emerald-500 mt-1">{t.aes256}</p>
               </div>
             </div>
           </div>
@@ -849,14 +1094,16 @@ function AdminManager({ onUpdate }: { onUpdate: () => void }) {
   );
 }
 
-function HistoryView({ assignments, people, onUpdate, isAdmin }: { assignments: Assignment[], people: Person[], onUpdate: () => void, isAdmin: boolean }) {
+function HistoryView({ assignments, people, onUpdate, isAdmin, lang, t }: { assignments: Assignment[], people: Person[], onUpdate: () => void, isAdmin: boolean, lang: Language, t: any }) {
   const [selectedAssignment, setSelectedAssignment] = useState<Assignment | null>(null);
   const [confirmedIds, setConfirmedIds] = useState<string[]>([]);
   const [isUpdating, setIsUpdating] = useState(false);
+  const [isConfirmingDelete, setIsConfirmingDelete] = useState(false);
 
   useEffect(() => {
     if (selectedAssignment) {
       setConfirmedIds(selectedAssignment.confirmedCollaborationIds);
+      setIsConfirmingDelete(false);
     }
   }, [selectedAssignment]);
 
@@ -874,16 +1121,29 @@ function HistoryView({ assignments, people, onUpdate, isAdmin }: { assignments: 
     }
   };
 
-  const handleDeleteLog = async (id: string, e: React.MouseEvent) => {
+  const executeDeleteLog = async () => {
+    if (!selectedAssignment) return;
+    try {
+      const id = selectedAssignment.id;
+      setSelectedAssignment(null);
+      await deleteAssignment(id);
+      setIsConfirmingDelete(false);
+      onUpdate();
+    } catch (error) {
+      console.error(error);
+      alert(t.deleteFailed || 'Delete failed');
+    }
+  };
+
+  const handleDeleteLogDirect = async (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    if (!confirm('Permanently delete this dispatch log?')) return;
     try {
       if (selectedAssignment?.id === id) setSelectedAssignment(null);
       await deleteAssignment(id);
       onUpdate();
     } catch (error) {
       console.error(error);
-      alert('Delete failed');
+      alert(t.deleteFailed || 'Delete failed');
     }
   };
 
@@ -894,47 +1154,52 @@ function HistoryView({ assignments, people, onUpdate, isAdmin }: { assignments: 
   return (
     <div className="space-y-10">
       <header className="border-b border-white/5 pb-8">
-        <h2 className="text-3xl font-bold tracking-tight text-white">Dispatch History</h2>
-        <p className="text-slate-400 font-medium mt-1">Review operational logs and certify actual collaborations for record tracking.</p>
+        <h2 className="text-3xl font-bold tracking-tight text-white">{t.dispatchHistory}</h2>
+        <p className="text-slate-400 font-medium mt-1">{t.historyDesc}</p>
       </header>
 
       <div className="grid grid-cols-1 xl:grid-cols-12 gap-10 items-start">
         <section className="xl:col-span-4 space-y-4">
-          <h3 className="font-bold text-lg text-white mb-2 ml-2 tracking-tight">Deployment Logs</h3>
+          <h3 className="font-bold text-lg text-white mb-2 ml-2 tracking-tight">{t.deploymentLogs}</h3>
           <div className="space-y-3 max-h-[700px] overflow-auto pr-2">
             {assignments.length === 0 ? (
-              <p className="text-slate-600 italic p-10 text-center">No logs generated.</p>
+              <p className="text-slate-600 italic p-10 text-center">{t.noLogsGenerated}</p>
             ) : (
               assignments.map(a => (
                 <div key={a.id} className="relative group">
                   <button 
+                    type="button"
                     onClick={() => setSelectedAssignment(a)}
-                    className={`w-full card p-5 text-left flex items-center justify-between transition-all border-l-4 ${selectedAssignment?.id === a.id ? 'border-l-blue-500 bg-[#1e242b]' : 'border-l-transparent hover:bg-white/[0.03]'}`}
+                    className={`w-full card p-5 text-left flex items-center justify-between transition-all border-l-4 cursor-pointer ${selectedAssignment?.id === a.id ? 'border-l-blue-500 bg-[#1e242b]' : 'border-l-transparent hover:bg-white/[0.03]'}`}
                   >
                     <div className="flex flex-col gap-1">
                       <p className={`font-mono text-sm font-bold tracking-tight ${selectedAssignment?.id === a.id ? 'text-white' : 'text-slate-400'}`}>
                         {format(new Date(a.date), 'dd MMM yyyy')}
                       </p>
-                      <p className="text-[10px] uppercase font-black tracking-widest text-slate-600">Personnel count: {a.assignedPeopleIds.length}</p>
+                      <p className="text-[10px] uppercase font-black tracking-widest text-slate-600">
+                        {t.personnelCount.replace('{count}', String(a.assignedPeopleIds.length))}
+                      </p>
                     </div>
                     <div>
                       {a.status === 'confirmed' ? (
                         <span className="badge-emerald flex items-center gap-1.5 ring-1 ring-emerald-500/20">
-                          <CheckCircle2 className="w-3 h-3 text-emerald-400" /> Certified
+                          <CheckCircle2 className="w-3 h-3 text-emerald-400" /> {t.certified}
                         </span>
                       ) : (
                         <span className="badge-orange flex items-center gap-1.5 ring-1 ring-orange-500/20">
-                          <AlertTriangle className="w-3 h-3 text-orange-400" /> Pending
+                          <AlertTriangle className="w-3 h-3 text-orange-400" /> {t.pending}
                         </span>
                       )}
                     </div>
                   </button>
                   {isAdmin && (
                     <button 
-                      onClick={(e) => handleDeleteLog(a.id, e)}
-                      className="absolute -top-1 -right-1 p-2 bg-red-600 text-white rounded-lg shadow-xl hover:bg-red-500 transition-all active:scale-95 z-20"
+                      type="button"
+                      onClick={(e) => handleDeleteLogDirect(a.id, e)}
+                      className="absolute -top-1.5 -right-1.5 p-1.5 bg-red-600 text-white rounded-lg shadow-xl hover:bg-red-500 transition-all active:scale-95 z-20 cursor-pointer opacity-0 group-hover:opacity-100"
+                      title={t.deleteLogBtn}
                     >
-                      <Trash2 className="w-4 h-4" />
+                      <Trash2 className="w-3.5 h-3.5" />
                     </button>
                   )}
                 </div>
@@ -946,20 +1211,54 @@ function HistoryView({ assignments, people, onUpdate, isAdmin }: { assignments: 
         <section className="xl:col-span-8 h-full">
           {selectedAssignment ? (
             <div className="card h-full p-8 bg-[#11141a] border-white/10 flex flex-col">
-               <div className="flex justify-between items-start mb-10 border-b border-white/5 pb-6">
+               <div className="flex justify-between items-start mb-10 border-b border-white/5 pb-6 gap-4 flex-wrap">
                  <div>
-                    <h3 className="text-2xl font-bold text-white tracking-tight">Audit Log</h3>
-                    <p className="text-xs font-mono text-slate-500 mt-1 uppercase tracking-widest">{format(new Date(selectedAssignment.date), 'eeee, MMMM do, yyyy')}</p>
+                    <div className="flex items-center gap-4 flex-wrap">
+                      <h3 className="text-2xl font-bold text-white tracking-tight">{t.auditLog}</h3>
+                      {isAdmin && (
+                        <div className="flex items-center">
+                          {isConfirmingDelete ? (
+                            <div className="flex gap-2 items-center bg-red-500/5 px-3 py-1.5 rounded-xl border border-red-500/10 animate-in fade-in duration-200">
+                              <span className="text-[9px] text-red-400 font-bold uppercase tracking-tight">{lang === 'es' ? '¿Confirmar?' : 'Confirm?'}</span>
+                              <button 
+                                type="button"
+                                onClick={executeDeleteLog}
+                                className="px-2 py-0.5 bg-red-600 text-white text-[9px] font-black uppercase rounded transition-all cursor-pointer hover:bg-red-500"
+                              >
+                                {t.confirm}
+                              </button>
+                              <button 
+                                type="button"
+                                onClick={() => setIsConfirmingDelete(false)}
+                                className="px-2 py-0.5 bg-slate-700 text-slate-300 text-[9px] font-black uppercase rounded transition-all cursor-pointer hover:bg-slate-600"
+                              >
+                                {t.cancel}
+                              </button>
+                            </div>
+                          ) : (
+                            <button 
+                              type="button"
+                              onClick={() => setIsConfirmingDelete(true)}
+                              className="flex items-center gap-1.5 px-2.5 py-1 bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/10 hover:border-red-500/20 rounded-lg text-xs font-bold transition-all cursor-pointer"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                              <span>{t.deleteLogBtn}</span>
+                            </button>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                    <p className="text-xs font-mono text-slate-500 mt-1.5 uppercase tracking-widest">{format(new Date(selectedAssignment.date), 'eeee, MMMM do, yyyy')}</p>
                  </div>
                  <div className="text-right">
-                    <p className="text-[10px] font-bold text-slate-600 uppercase tracking-widest">Status Code</p>
-                    <p className={`text-sm font-black tracking-widest uppercase ${selectedAssignment.status === 'confirmed' ? 'text-emerald-400' : 'text-orange-400'}`}>
-                      {selectedAssignment.status}
+                    <p className="text-[10px] font-bold text-slate-600 uppercase tracking-widest">{t.statusCode}</p>
+                    <p className={`text-sm font-black tracking-widest uppercase mt-1 ${selectedAssignment.status === 'confirmed' ? 'text-emerald-400' : 'text-orange-400'}`}>
+                      {selectedAssignment.status === 'confirmed' ? t.certified : t.pending}
                     </p>
                  </div>
                </div>
 
-               <p className="text-sm text-slate-400 mb-8 italic">Certify members who effectively engaged in collaboration for threshold accrual:</p>
+               <p className="text-sm text-slate-400 mb-8 italic">{t.certifyInstruction}</p>
                
                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-10">
                  {selectedAssignment.assignedPeopleIds.map((id, index) => {
@@ -967,14 +1266,15 @@ function HistoryView({ assignments, people, onUpdate, isAdmin }: { assignments: 
                    const isConfirmed = confirmedIds.includes(id);
                    return (
                      <button
+                       type="button"
                        key={id}
                        disabled={selectedAssignment.status === 'confirmed'}
                        onClick={() => toggleConfirmed(id)}
-                       className={`group flex items-center justify-between p-4 rounded-xl border transition-all text-left ${isConfirmed ? 'bg-blue-600/10 border-blue-600/40 text-white' : 'bg-white/[0.03] border-white/5 text-slate-500 hover:border-white/10'}`}
+                       className={`group flex items-center justify-between p-4 rounded-xl border transition-all text-left ${selectedAssignment.status === 'confirmed' ? 'cursor-not-allowed opacity-80' : 'cursor-pointer'} ${isConfirmed ? 'bg-blue-600/10 border-blue-600/40 text-white' : 'bg-white/[0.03] border-white/5 text-slate-500 hover:border-white/10'}`}
                      >
                        <div className="flex items-center gap-4">
                          <span className={`font-mono text-xs ${isConfirmed ? 'text-blue-400' : 'text-slate-700 font-black'}`}>{String(index + 1).padStart(2, '0')}</span>
-                         <span className="font-bold text-sm tracking-wide">{person?.name || 'Unknown Identification'}</span>
+                         <span className="font-bold text-sm tracking-wide">{person?.name || t.unknownId}</span>
                        </div>
                        <div className={`w-5 h-5 rounded-md border flex items-center justify-center transition-all ${isConfirmed ? 'bg-blue-600 border-blue-600 text-white shadow-lg shadow-blue-900/40' : 'border-white/10 group-hover:border-white/20'}`}>
                          {isConfirmed && <CheckCircle2 className="w-3 h-3" />}
@@ -988,18 +1288,19 @@ function HistoryView({ assignments, people, onUpdate, isAdmin }: { assignments: 
                  {selectedAssignment.status === 'draft' ? (
                    isAdmin ? (
                      <button 
+                      type="button"
                       disabled={isUpdating}
                       onClick={handleConfirm}
-                      className="w-full btn-primary py-5 flex items-center justify-center gap-3 tracking-[0.2em] font-black group"
+                      className="w-full btn-primary py-5 flex items-center justify-center gap-3 tracking-[0.2em] font-black group cursor-pointer"
                      >
                        <CheckCircle2 className="w-5 h-5 group-hover:scale-110 transition-transform" />
-                       CERTIFY DEPLOYMENT
+                       {t.certifyBtn}
                      </button>
                    ) : (
                      <div className="p-10 bg-black/20 rounded-2xl text-center border border-white/5 flex flex-col items-center gap-3">
                        <AlertTriangle className="w-12 h-12 mb-2 text-orange-400 opacity-20" />
-                       <p className="text-sm font-bold text-slate-500 tracking-widest uppercase">Admin Authorization Required</p>
-                       <p className="text-xs text-slate-600 mt-1">Contact a system administrator to certify this operational log.</p>
+                       <p className="text-sm font-bold text-slate-500 tracking-widest uppercase">{t.adminAuthRequired}</p>
+                       <p className="text-xs text-slate-600 mt-1">{t.contactAdminDesc}</p>
                      </div>
                    )
                  ) : (
@@ -1008,8 +1309,8 @@ function HistoryView({ assignments, people, onUpdate, isAdmin }: { assignments: 
                         <CheckCircle2 className="w-6 h-6" />
                      </div>
                      <div>
-                        <p className="text-sm font-bold text-slate-300 tracking-widest uppercase">Operational Log Finalized</p>
-                        <p className="text-xs text-slate-500 mt-1">Activity metrics have been successfully pushed to personnel records.</p>
+                        <p className="text-sm font-bold text-slate-300 tracking-widest uppercase">{t.logFinalized}</p>
+                        <p className="text-xs text-slate-500 mt-1">{t.logFinalizedDesc}</p>
                      </div>
                    </div>
                  )}
@@ -1018,7 +1319,7 @@ function HistoryView({ assignments, people, onUpdate, isAdmin }: { assignments: 
           ) : (
             <div className="h-full min-h-[500px] bg-white/[0.01] border-2 border-dashed border-white/5 rounded-3xl flex flex-col items-center justify-center text-slate-600 p-12">
               <History className="w-16 h-16 mb-6 opacity-5" />
-              <p className="text-center font-medium max-w-xs leading-relaxed italic opacity-40">Select a deployment vector from the log queue to review details and certify collaboration events.</p>
+              <p className="text-center font-medium max-w-xs leading-relaxed italic opacity-40">{t.selectLogPrompt}</p>
             </div>
           )}
         </section>
